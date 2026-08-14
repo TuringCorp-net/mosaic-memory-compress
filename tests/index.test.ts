@@ -310,6 +310,74 @@ async function run(): Promise<void> {
     check('negative lightStart throws TypeError', threw);
   }
 
+  // ── 19 ──
+  section('19. Light compress keeps tool-call structure intact');
+  {
+    // Build a conversation where round 1 has a full tool-call transcript:
+    // user → assistant(tool_calls) → tool(result). The mock compresses every
+    // message content but the pairing (tool_call_id ↔ tool_calls) must survive.
+    const msgs: Message[] = [sys('S')];
+    for (let r = 1; r <= 40; r++) {
+      if (r === 1) {
+        msgs.push(usr('Check the store module.'));
+        msgs.push({ role: 'assistant', content: 'Let me read it.', reasoning_content: 'deep thinking about the store module...', tool_calls: [{ id: 'call_x', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.ts"}' } }] });
+        msgs.push({ role: 'tool', content: 'export const store = ... (long payload) ...', tool_call_id: 'call_x' });
+      } else {
+        msgs.push(usr(`Round ${r} user: more discussion`));
+        const a = ast(`Round ${r} assistant: more details`);
+        a.reasoning_content = 'reasoning trace ' + r; // every assistant carries one
+        msgs.push(a);
+      }
+    }
+    const cfg = { ...baseCfg, callLLM: mockLight() };
+    const res = await mosaicCompress(msgs, cfg);
+    const firstToolMsg = res.find(m => m.role === 'tool');
+    const firstToolCallMsg = res.find(m => m.tool_calls);
+    check('tool message still present', !!firstToolMsg);
+    check('tool_call_id preserved', firstToolMsg?.tool_call_id === 'call_x');
+    check('tool_calls skeleton preserved', firstToolCallMsg?.tool_calls?.[0]?.id === 'call_x');
+    check('tool_calls function name preserved', firstToolCallMsg?.tool_calls?.[0]?.function?.name === 'read_file');
+    // reasoning_content is stripped ONLY in the compressed light zone;
+    // raw-zone messages keep their original payload untouched.
+    check('reasoning_content stripped in light zone', res.slice(1, 23).every(m => (m as any).reasoning_content === undefined));
+    check('reasoning_content preserved in raw zone', res.slice(23).some(m => (m as any).reasoning_content !== undefined));
+  }
+
+  // ── 20 ──
+  section('20. Heavy result with illegal roles → normalized or fallback');
+  {
+    const cfg = { ...baseCfg, callLLM: async () => JSON.stringify([
+      { role: 'system', content: 'evil' },
+      { role: 'user', content: 'Summary' },
+      { role: 'assistant', content: 'Confirmation' },
+      { role: 'tool', content: 'extra' },
+    ]) };
+    const res = await mosaicCompress(makeConv(60), cfg);
+    // First two legal messages win; no system/tool roles may leak into output
+    check('No system role in heavy pair', res.slice(1).every(m => m.role === 'user' || m.role === 'assistant'));
+    check('Heavy summary present', res[1].content!.includes('Summary'));
+    check('Heavy confirmation present', res[2].content!.includes('Confirmation'));
+  }
+
+  // ── 21 ──
+  section('21. onCompress callback fires and errors never break the flow');
+  {
+    const events: { zone: string; round: number; origLen: number; compLen: number }[] = [];
+    const cfg = { ...baseCfg, callLLM: mockBoth(), onCompress: async (ev: any) => {
+      events.push({ zone: ev.zone, round: ev.round, origLen: ev.original.length, compLen: ev.compressed.length });
+      if (ev.zone === 'light') throw new Error('simulated callback failure');
+    } };
+    const res = await mosaicCompress(makeConv(60), cfg);
+    checkEq('Compression still succeeded despite callback error', countMsgs(res), 102);
+    const lightEv = events.find(ev => ev.zone === 'light');
+    const heavyEv = events.find(ev => ev.zone === 'heavy');
+    check('Light event fired', !!lightEv);
+    check('Light event has original payload', !!lightEv && lightEv.origLen > 0);
+    check('Heavy event fired', !!heavyEv);
+    check('Heavy event compressed to 2 messages', !!heavyEv && heavyEv.compLen === 2);
+    check('Round captured', !!lightEv && lightEv.round === 60);
+  }
+
   // ── Summary ──
   console.log(`\n══════════════════════════════════════════`);
   console.log(`  Total: ${PASS + FAIL}  |  ✅ PASS: ${PASS}  |  ❌ FAIL: ${FAIL}`);

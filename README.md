@@ -14,7 +14,7 @@ Round (R-49) → Round (R-30)  │ Light zone → distill each, count unchanged
 Round (R-29) ──→ Round R     │ Raw zone  → keep as-is
 ```
 
-**Steady state: always 82 messages**, whether at round 60 or round 15,000. The compression ratio approaches 100%.
+**Steady state: constant message count** — `2 + heavyStart × (messages per round)`, e.g. 102 messages for pure two-message rounds, whether at round 60 or round 15,000 (higher, but still constant, when tool-call rounds add messages). The compression ratio approaches 100%.
 
 ## Quick Start
 
@@ -111,6 +111,11 @@ interface Message {
 
 From round 60 onward, the compressed size is **completely constant**.
 
+> The token figures above are **estimates** based on assumed per-round message
+> sizes (see the design docs). Actual numbers depend on your message sizes and
+> tool-call payloads; a measurement script is planned
+> ([`npm run bench`](docs/ROADMAP.md)).
+
 ## Design
 
 Read the [full design document (English)](docs/design.md) or [中文设计文档](docs/design.cn.md).
@@ -138,11 +143,34 @@ task-level compaction / output retention / spill complement this library's
 message-level compression (roles and order preserved). See the
 [Roadmap](docs/ROADMAP.md) for upcoming work.
 
+## Benchmark
+
+A deterministic simulation (zero LLM cost, reproducible) runs the real
+algorithm with a rule-based pseudo-LLM to verify steady state, the token
+curve, and information retention:
+
+```bash
+npm run bench                        # synthetic sweep: 100 / 500 / 1000 / 5000 rounds
+npm run bench -- --file chat.json    # analyze your own conversation file
+```
+
+The file mode accepts any JSON array of messages in the library's
+`Message` shape and reports the compression ratio:
+
+```json
+[{"role": "system", "content": "..."},
+ {"role": "user", "content": "..."},
+ {"role": "assistant", "content": "..."}]
+```
+
 ## Development
 
 ```bash
 # Run tests (zero LLM cost — uses mock responses)
 npm test
+
+# Type-check the whole project
+npm run typecheck
 
 # Or directly:
 npx tsx tests/index.test.ts

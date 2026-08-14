@@ -48,6 +48,29 @@ export interface MosaicConfig {
    *   }
    */
   callLLM: (systemPrompt: string, userInput: string) => Promise<string>;
+
+  /**
+   * Optional hook fired after each compression. Receives the original raw
+   * payload that was compressed plus the compressed result, so hosts can
+   * archive originals in their own persistence layer (database, log, or
+   * platform spill) and re-read them later on demand. MosaicCompress itself
+   * stays stateless — this is the interface for the architecture boundary,
+   * not built-in storage. Errors thrown by the callback are logged and do
+   * NOT break the compression flow.
+   */
+  onCompress?: (event: CompressEvent) => void | Promise<void>;
+}
+
+/** Payload passed to `onCompress` after Light or Heavy compression. */
+export interface CompressEvent {
+  /** Which zone was compressed: 'light' (distill, count unchanged) or 'heavy' (merged to 2 msgs). */
+  zone: 'light' | 'heavy';
+  /** Current round count at the time of compression. */
+  round: number;
+  /** The raw messages that were compressed (what a host should archive). */
+  original: Message[];
+  /** The compressed replacement messages. */
+  compressed: Message[];
 }
 
 export const DEFAULT_CONFIG: Omit<MosaicConfig, 'callLLM'> = {
@@ -131,11 +154,11 @@ export async function mosaicCompress(
 
   // Light first (count unchanged), then Heavy (boundaries precomputed)
   if (needLight && lightEnd > 0) {
-    result = await applyLightCompress(result, roundStarts, heavyEnd, lightEnd, config);
+    result = await applyLightCompress(result, roundStarts, heavyEnd, lightEnd, R, config);
   }
 
   if (needHeavy && heavyEnd > 0) {
-    result = await applyHeavyCompress(result, roundStarts, heavyEnd, config);
+    result = await applyHeavyCompress(result, roundStarts, heavyEnd, R, config);
   }
 
   return [...sysMsg, ...result];
@@ -162,6 +185,7 @@ async function applyLightCompress(
   roundStarts: number[],
   heavyEnd: number,
   lightEnd: number,
+  round: number,
   config: MosaicConfig,
 ): Promise<Message[]> {
   const startIdx = heavyEnd > 0 ? roundStarts[heavyEnd] : 0;
@@ -171,6 +195,7 @@ async function applyLightCompress(
 
   const target = history.slice(startIdx, endIdx);
   const compressed = await runLightCompressLLM(target, config);
+  await emitCompressEvent(config, { zone: 'light', round, original: target, compressed });
 
   const result = [...history];
   result.splice(startIdx, endIdx - startIdx, ...compressed);
@@ -194,6 +219,10 @@ async function runLightCompressLLM(
 2. Preserve: user decisions, preferences, feedback, assistant conclusions, commitments, key suggestions
 3. Remove: filler words, repeated confirmations, small talk, completed tool-call processes
 4. Keep each compressed message concise (≤80 words)
+5. Tool-call transcripts: for assistant messages that carry tool_calls, compress
+   the prose but keep the function call intact in your mind; for role "tool"
+   messages, compress the result to its essential conclusion (they are usually
+   the largest messages). NEVER reorder or drop indices.
 
 ## Output format
 Output ONLY a JSON array (no other text):
@@ -232,9 +261,18 @@ function parseLightResult(raw: string, original: Message[]): Message[] {
     for (const item of items) map.set(item.i, item.c);
     return original.map((msg, i) => {
       const c = map.get(i);
-      // Missing/invalid entry → keep the original message verbatim.
-      // Never silently truncate: that would destroy information.
-      return c && c.length > 0 ? { ...msg, content: c } : msg;
+      if (!c || c.length === 0) return msg; // missing → keep verbatim, never truncate
+
+      const next: Message = { ...msg, content: c };
+      // Structural fields must survive compression so the message array stays
+      // valid for OpenAI-compatible APIs:
+      //  - tool_calls: pairing with following tool messages depends on the
+      //    assistant message having tool_calls; keep the skeleton.
+      //  - tool_call_id: same pairing for role:tool messages; keep it.
+      //  - reasoning_content: stripped — it is noise for the next turn and is
+      //    not validated by APIs.
+      delete (next as { reasoning_content?: string }).reasoning_content;
+      return next;
     });
   } catch {
     return original;
@@ -249,6 +287,7 @@ async function applyHeavyCompress(
   history: Message[],
   roundStarts: number[],
   heavyEnd: number,
+  round: number,
   config: MosaicConfig,
 ): Promise<Message[]> {
   const endIdx = heavyEnd < roundStarts.length ? roundStarts[heavyEnd] : history.length;
@@ -257,10 +296,21 @@ async function applyHeavyCompress(
   if (target.length === 0) return history;
 
   const pair = await runHeavyCompressLLM(target, config);
+  await emitCompressEvent(config, { zone: 'heavy', round, original: target, compressed: pair });
 
   const result = [...history];
   result.splice(0, endIdx, ...pair);
   return result;
+}
+
+/** Fires the optional onCompress hook; callback errors never break the flow. */
+async function emitCompressEvent(config: MosaicConfig, event: CompressEvent): Promise<void> {
+  if (!config.onCompress) return;
+  try {
+    await config.onCompress(event);
+  } catch (err) {
+    console.error('[mosaic_compress] onCompress callback failed:', (err as Error).message);
+  }
 }
 
 async function runHeavyCompressLLM(
@@ -302,11 +352,19 @@ function parseHeavyResult(raw: string): Message[] {
   try {
     const arr = extractJsonArray(raw);
     if (!arr) throw new Error('No JSON array found');
-    const items: { role: string; content: string }[] = JSON.parse(arr);
-    return items.slice(0, 2).map(item => ({
-      role: item.role as 'user' | 'assistant',
-      content: item.content || '',
-    }));
+    const items: { role?: string; content?: string }[] = JSON.parse(arr);
+    const pair: Message[] = [];
+    for (const item of items) {
+      if (pair.length >= 2) break;
+      // Normalize the role: only 'user'/'assistant' are legal in the output
+      // pair. Anything else (system, tool, typos, missing) is treated as a
+      // malformed entry and skipped.
+      if (item.role !== 'user' && item.role !== 'assistant') continue;
+      pair.push({ role: item.role, content: item.content || '' });
+    }
+    // Must end with exactly 2 messages (user summary + assistant confirmation)
+    if (pair.length !== 2) throw new Error('Expected 2 normalized messages');
+    return pair;
   } catch {
     return [
       { role: 'user', content: '[Compression failed] Summary unavailable.' },

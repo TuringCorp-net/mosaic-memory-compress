@@ -1,0 +1,1 @@
+[{"role":"system","content":"You are a helpful assistant."},{"role":"user","content":"你好，帮我看看这个项目怎么跑测试？"},{"role":"assistant","content":"好的，先安装依赖再运行 npm test。"},{"role":"user","content":"那 typecheck 呢？"},{"role":"assistant","content":"npm run typecheck 可以检查类型。"}]

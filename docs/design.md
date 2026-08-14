@@ -100,14 +100,14 @@ interface MosaicConfig {
 With default parameters (`lightStart=30, lightWindow=10, heavyStart=50, heavyWindow=10`):
 
 ```
-Heavy zone: 2 msgs  (1 user summary + 1 assistant confirmation)
-Light zone: 20 msgs (10 rounds × 2)
-Raw zone:   60 msgs (30 rounds × 2)
+Heavy zone: 2 msgs   (1 user summary + 1 assistant confirmation)
+Light zone: 40 msgs  (20 rounds × 2 — rounds R-heavyStart .. R-lightStart)
+Raw zone:   60 msgs  (30 rounds × 2 — the most recent lightStart rounds)
 ─────────────────
-Total:      82 msgs (+ 1 system prompt if present)
+Total:      102 msgs (+ 1 system prompt if present)
 ```
 
-**This count is CONSTANT regardless of how many rounds the conversation has.** Whether at round 60 or round 15,000, the message count is always 82.
+**This count is CONSTANT regardless of how many rounds the conversation has.** Whether at round 60 or round 15,000, the message count is always 102 for pure two-message rounds — in general `2 + heavyStart × messagesPerRound`. The exact value depends on the average number of messages per round (tool-call rounds add an assistant + tool message), but it never grows with R.
 
 ---
 

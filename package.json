@@ -13,7 +13,9 @@
   },
   "files": ["src/", "docs/"],
   "scripts": {
-    "test": "npx tsx tests/index.test.ts"
+    "test": "npx tsx tests/index.test.ts",
+    "bench": "tsx benchmark/simulate.ts",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "llm",
@@ -28,7 +30,8 @@
   ],
   "license": "MIT",
   "devDependencies": {
-    "tsx": "^4.0.0"
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
   },
   "repository": {
     "type": "git",
