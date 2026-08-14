@@ -122,40 +122,21 @@ MosaicCompress is intentionally **stateless and lossy**:
 - **Durable storage is the host's responsibility.** The library compresses
   the message array in place and never persists original payloads. Hosts
   that need lossless history must archive the raw messages themselves —
-  through their own code, a database, or platform mechanisms such as
-  DeepSeek Harness sessions / `spill` (an `onCompress` callback to hand
-  originals to the host is planned — see [Roadmap](docs/ROADMAP.md) M2).
+  through their own code, a database, or the host platform's persistence
+  layer (an `onCompress` callback to hand originals to the host is planned —
+  see [Roadmap](docs/ROADMAP.md) M2).
 - **Compression is lossy by design.** Like any summarization approach, early
   details fade progressively. That is the point: the goal is an unbounded
   conversation, not lossless archival. If exact retrieval of early turns
   matters, pair this library with a persistence layer and re-read on demand.
 
-## DeepSeek Harness Integration
+## Integration Notes
 
-MosaicCompress is developed as a **first-class companion to DeepSeek Harness
-(DSH)** — its primary integration target.
-
-**Complementary, not redundant.** DSH already ships agent-task-level
-mechanisms: `compaction` (task-context summarization), `output-retention`
-(head/tail truncation of large tool outputs), and `spill` (overflow payloads
-persisted to disk and re-readable). These operate on tool results and task
-context. MosaicCompress covers what they do not: **message-level dialogue** —
-preserving the conversation skeleton (roles, order, count) while distilling
-older rounds along a forgetting curve.
-
-**Cooperation pattern.** When integrated, MosaicCompress will hand
-compressed-away originals to DSH's persistence/`spill` layer via a callback,
-so nothing is silently lost and nothing is re-invented.
-
-**Focused roadmap.** The adaptive-threshold milestone
-([Roadmap](docs/ROADMAP.md) M1) targets DeepSeek V4's 1M-token context
-window and beyond: thresholds should derive from the model's context size
-and current usage ratio rather than fixed heuristics.
-
-This project is maintained by an individual developer and deliberately
-specializes: instead of a one-size-fits-all library, it optimizes for
-DeepSeek Harness, with the ambition of becoming a recommended — and
-eventually built-in — module.
+MosaicCompress is host-agnostic and works wherever a `callLLM` function
+exists. Its primary integration reference is **DeepSeek Harness**, whose
+task-level compaction / output retention / spill complement this library's
+message-level compression (roles and order preserved). See the
+[Roadmap](docs/ROADMAP.md) for upcoming work.
 
 ## Development
 

@@ -4,12 +4,9 @@
 
 ## Strategic Direction
 
-MosaicCompress is **specialized, not generic**: it is developed as a
-first-class companion to **DeepSeek Harness (DSH)** and optimizes for DSH as
-its primary integration target — with the ambition of becoming a recommended,
-eventually built-in module. It complements DSH's existing context-management
-mechanisms (`compaction`, `output-retention`, `spill`) rather than
-duplicating them; see the README's [DSH Integration section](../README.md#deepseek-harness-integration).
+MosaicCompress stays a small, focused library: message-level forgetting-curve
+compression. DeepSeek Harness is the primary integration reference, but the
+library remains host-agnostic.
 
 ## Milestone 1 — Context-Aware Adaptive Thresholds (next)
 
@@ -43,14 +40,14 @@ what they cost.
 ## Milestone 2 — On-Compress Original Payload Callback
 
 **Problem**: compression is lossy by design; the original text must be
-preservable by the HOST (database, log, DSH spill), not by this library.
+preservable by the HOST (database, log, or platform spill), not by this
+library.
 
 **Direction**: add an `onCompress` callback that receives the raw payload being
 compressed (plus zone metadata), so hosts can archive originals and re-read
-them later on demand. DeepSeek Harness's `spill` / session persistence is
-the reference destination for this integration. MosaicCompress stays
-stateless; this is an interface for the architecture boundary, not built-in
-storage.
+them later on demand in their own persistence layer (database, log, or
+platform spill). MosaicCompress stays stateless; this is an interface for
+the architecture boundary, not built-in storage.
 
 ## Milestone 3 — Real-LLM Information Retention Benchmark
 
