@@ -37,7 +37,7 @@ same library behaves sensibly from 128K-class models up to 1M-class ones.
 retention, because adaptive thresholds are only meaningful if we can measure
 what they cost.
 
-## Milestone 2 — On-Compress Original Payload Callback
+## Milestone 2 — On-Compress Original Payload Callback ✅ (implemented 2026-08-14)
 
 **Problem**: compression is lossy by design; the original text must be
 preservable by the HOST (database, log, or platform spill), not by this

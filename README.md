@@ -49,7 +49,7 @@ const compressed = await mosaicCompress(messages, config);
 
 ## Features
 
-- **Stateless & Idempotent** — same input always yields same output
+- **Stateless & repeatable** — no session state; call it every turn, and the output can be fed back in as input
 - **Zero-cost below threshold** — returns immediately if no compression is due
 - **Anti-jitter** — compression only at configurable window boundaries
 - **LLM-agnostic** — bring your own `callLLM` function (OpenAI, Anthropic, local models…)
@@ -75,6 +75,7 @@ const compressed = await mosaicCompress(messages, config);
 | `heavyStart` | `number` | `50` | Rounds beyond this → Heavy zone |
 | `heavyWindow` | `number` | `10` | Anti-jitter for heavy compression |
 | `callLLM` | `(sys: string, user: string) => Promise<string>` | *required* | Your LLM call function |
+| `onCompress` | `(event: CompressEvent) => void \| Promise<void>` | *optional* | Hook after each compression; receives the original payload for host-side archiving |
 
 ### `DEFAULT_CONFIG`
 
@@ -100,22 +101,6 @@ interface Message {
 }
 ```
 
-## Efficiency
-
-| Rounds | Uncompressed | Compressed | Reduction |
-|--------|-------------|-----------|-----------|
-| 100 | 100K tokens | 33.7K | 66% |
-| 500 | 500K tokens | 33.7K | 93% |
-| 5,000 | 5M tokens | 33.7K | 99.3% |
-| 15,000 | 15M tokens | 33.7K | 99.8% |
-
-From round 60 onward, the compressed size is **completely constant**.
-
-> The token figures above are **estimates** based on assumed per-round message
-> sizes (see the design docs). Actual numbers depend on your message sizes and
-> tool-call payloads; a measurement script is planned
-> ([`npm run bench`](docs/ROADMAP.md)).
-
 ## Design
 
 Read the [full design document (English)](docs/design.md) or [中文设计文档](docs/design.cn.md).
@@ -128,8 +113,8 @@ MosaicCompress is intentionally **stateless and lossy**:
   the message array in place and never persists original payloads. Hosts
   that need lossless history must archive the raw messages themselves —
   through their own code, a database, or the host platform's persistence
-  layer (an `onCompress` callback to hand originals to the host is planned —
-  see [Roadmap](docs/ROADMAP.md) M2).
+  layer (the `onCompress` callback hands every compressed-away original to
+  the host for archiving).
 - **Compression is lossy by design.** Like any summarization approach, early
   details fade progressively. That is the point: the goal is an unbounded
   conversation, not lossless archival. If exact retrieval of early turns
