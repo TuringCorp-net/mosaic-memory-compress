@@ -6,8 +6,8 @@
   "description": "Natural forgetting-curve compaction backend for DeepSeek Harness (prototype)",
   "main": "src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "tsx tests/zones.spec.ts && tsx tests/smoke.spec.ts && tsx tests/pipe.spec.ts"
+    "typecheck": "./node_modules/.bin/tsc --noEmit",
+    "test": "./node_modules/.bin/tsx tests/zones.spec.ts && ./node_modules/.bin/tsx tests/smoke.spec.ts && ./node_modules/.bin/tsx tests/pipe.spec.ts"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
