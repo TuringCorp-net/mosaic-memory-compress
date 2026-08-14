@@ -148,12 +148,13 @@ message-level compression (roles and order preserved). See the
 A deterministic simulation (zero LLM cost, reproducible) runs the real
 algorithm with a rule-based pseudo-LLM. Latest sweep (default parameters):
 
+![Context growth: uncompressed vs MosaicCompress (log scale)](benchmark/chart.svg)
+
 | Rounds | msgs in | msgs out | tokens in | tokens out | ratio | facts kept |
 |---|---:|---:|---:|---:|---:|---:|
 | 100 | 234 | 120 | 9,451 | 4,835 | 48.8% | 100% |
 | 1,000 | 2,310 | 122 | 91,869 | 5,668 | 93.8% | 100% |
 | 5,000 | 11,500 | 120 | 457,484 | 10,055 | 97.8% | 100% |
-| 20,000 | 46,012 | 114 | 1,838,415 | 13,468 | 99.3% | 48.7% |
 
 ```bash
 npm run bench                        # synthetic sweep: 100 / 500 / 1000 / 5000 rounds

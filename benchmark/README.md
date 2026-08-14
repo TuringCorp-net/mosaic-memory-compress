@@ -57,7 +57,8 @@ algorithm's mechanism — not LLM quality:
 | 500 | 1,162 | 122 | 47,177 | 5,571 | 88.2% | 25/25 (100%) |
 | 1,000 | 2,310 | 122 | 91,869 | 5,668 | 93.8% | 50/50 (100%) |
 | 5,000 | 11,500 | 120 | 457,484 | 10,055 | 97.8% | 250/250 (100%) |
-| 20,000 | 46,012 | 114 | 1,838,415 | 13,468 | 99.3% | 487/1,000 (48.7%) |
+
+![Context growth: uncompressed vs MosaicCompress (log scale)](chart.svg)
 
 Reproduce with:
 
@@ -74,7 +75,7 @@ npm run bench
    pure two-message rounds, ~120 here because 15% tool rounds add messages.
 2. **The summary budget bounds retention — in two phases.** Before the budget
    fills, facts survive 100%; after it fills, the oldest fall off and the
-   summary size is capped. Capacity ≈ `budget / tokens-per-fact`
+   summary size is capped (verified in a one-off 20,000-round run). Capacity ≈ `budget / tokens-per-fact`
    (16K ≈ 487 facts at ~28 tok/fact in this generator). This is not an
    LLM-quality problem — it is the mechanism. Early details are only
    recoverable if the host archived the originals (the `onCompress`

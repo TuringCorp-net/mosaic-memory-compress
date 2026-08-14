@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="440" viewBox="0 0 720 440">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="360" y="32" font-family="sans-serif" font-size="18" font-weight="bold" text-anchor="middle" fill="#222">Context growth: uncompressed vs MosaicCompress (log scale)</text>
+<line x1="90" y1="390.0" x2="690" y2="390.0" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80" y="394.0" font-family="sans-serif" font-size="12" text-anchor="end" fill="#666">1K</text>
+<line x1="90" y1="283.3" x2="690" y2="283.3" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80" y="287.3" font-family="sans-serif" font-size="12" text-anchor="end" fill="#666">10K</text>
+<line x1="90" y1="176.7" x2="690" y2="176.7" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80" y="180.7" font-family="sans-serif" font-size="12" text-anchor="end" fill="#666">100K</text>
+<line x1="90" y1="70.0" x2="690" y2="70.0" stroke="#e0e0e0" stroke-width="1"/>
+<text x="80" y="74.0" font-family="sans-serif" font-size="12" text-anchor="end" fill="#666">1M</text>
+<line x1="90.0" y1="390" x2="90.0" y2="395" stroke="#999"/>
+<text x="90.0" y="412" font-family="sans-serif" font-size="12" text-anchor="middle" fill="#666">0</text>
+<line x1="210.0" y1="390" x2="210.0" y2="395" stroke="#999"/>
+<text x="210.0" y="412" font-family="sans-serif" font-size="12" text-anchor="middle" fill="#666">1000</text>
+<line x1="330.0" y1="390" x2="330.0" y2="395" stroke="#999"/>
+<text x="330.0" y="412" font-family="sans-serif" font-size="12" text-anchor="middle" fill="#666">2000</text>
+<line x1="450.0" y1="390" x2="450.0" y2="395" stroke="#999"/>
+<text x="450.0" y="412" font-family="sans-serif" font-size="12" text-anchor="middle" fill="#666">3000</text>
+<line x1="570.0" y1="390" x2="570.0" y2="395" stroke="#999"/>
+<text x="570.0" y="412" font-family="sans-serif" font-size="12" text-anchor="middle" fill="#666">4000</text>
+<line x1="690.0" y1="390" x2="690.0" y2="395" stroke="#999"/>
+<text x="690.0" y="412" font-family="sans-serif" font-size="12" text-anchor="middle" fill="#666">5000</text>
+<text x="390" y="432" font-family="sans-serif" font-size="13" text-anchor="middle" fill="#444">conversation rounds</text>
+<line x1="90" y1="70" x2="90" y2="390" stroke="#333" stroke-width="1.5"/>
+<line x1="90" y1="390" x2="690" y2="390" stroke="#333" stroke-width="1.5"/>
+<polyline points="102.0,285.9 150.0,211.5 210.0,180.6 690.0,106.2" fill="none" stroke="#d64541" stroke-width="2.5"/>
+<circle cx="102.0" cy="285.9" r="4" fill="#d64541"/>
+<circle cx="150.0" cy="211.5" r="4" fill="#d64541"/>
+<circle cx="210.0" cy="180.6" r="4" fill="#d64541"/>
+<circle cx="690.0" cy="106.2" r="4" fill="#d64541"/>
+<polyline points="102.0,317.0 150.0,310.4 210.0,309.6 690.0,283.1" fill="none" stroke="#27ae60" stroke-width="2.5"/>
+<circle cx="102.0" cy="317.0" r="4" fill="#27ae60"/>
+<circle cx="150.0" cy="310.4" r="4" fill="#27ae60"/>
+<circle cx="210.0" cy="309.6" r="4" fill="#27ae60"/>
+<circle cx="690.0" cy="283.1" r="4" fill="#27ae60"/>
+<text x="682" y="96.2" font-family="sans-serif" font-size="12" text-anchor="end" fill="#d64541">457K tokens (uncompressed)</text>
+<text x="682" y="273.1" font-family="sans-serif" font-size="12" text-anchor="end" fill="#27ae60">10K tokens (compressed, steady)</text>
+<rect x="100" y="76" width="14" height="4" fill="#d64541"/>
+<text x="120" y="84" font-family="sans-serif" font-size="12" fill="#444">Uncompressed history</text>
+<rect x="100" y="94" width="14" height="4" fill="#27ae60"/>
+<text x="120" y="102" font-family="sans-serif" font-size="12" fill="#444">After MosaicCompress</text>
+</svg>

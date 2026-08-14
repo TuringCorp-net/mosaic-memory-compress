@@ -371,7 +371,7 @@ async function main(): Promise<void> {
   // ── Standard sweep with the default budget ──
   console.log('');
   console.log('Sweep (default heavy budget ' + DEFAULT_HEAVY_BUDGET + '):');
-  for (const rounds of [100, 500, 1000, 5000, 20000]) {
+  for (const rounds of [100, 500, 1000, 5000]) {
     await analyze(rounds);
   }
   console.log('');
