@@ -1,13 +1,27 @@
 # MosaicCompress — Roadmap
 
-> Last updated: 2026-08-14. Milestones below reflect design reviews with the maintainer.
+> Last updated: 2026-08-14.
+
+## Strategic Direction
+
+MosaicCompress is **specialized, not generic**: it is developed as a
+first-class companion to **DeepSeek Harness (DSH)** and optimizes for DSH as
+its primary integration target — with the ambition of becoming a recommended,
+eventually built-in module. It complements DSH's existing context-management
+mechanisms (`compaction`, `output-retention`, `spill`) rather than
+duplicating them; see the README's [DSH Integration section](../README.md#deepseek-harness-integration).
 
 ## Milestone 1 — Context-Aware Adaptive Thresholds (next)
 
-**Problem**: `lightStart` / `heavyStart` / `lightWindow` / `heavyWindow` are hard-coded
-guesses (30 / 50 / 10 / 10). Different LLMs have different context windows
-(128K / 256K / 1M), and the right thresholds depend on how much of the window
-the conversation currently occupies.
+**Problem**: `lightStart` / `heavyStart` / `lightWindow` / `heavyWindow`
+currently default to fixed heuristics (30 / 50 / 10 / 10) hand-tuned for a
+typical mid-size context window. Real models expose very different context
+budgets (128K / 256K / 1M), so the right thresholds depend on the model in
+use and on how much of the window the current conversation occupies.
+
+**Primary target**: DeepSeek V4's 1M-token context window — zone boundaries
+should scale with the model's context size and observed usage ratio, so the
+same library behaves sensibly from 128K-class models up to 1M-class ones.
 
 **Direction**:
 - Accept an optional token/usage signal from the host (e.g. current context
@@ -33,8 +47,10 @@ preservable by the HOST (database, log, DSH spill), not by this library.
 
 **Direction**: add an `onCompress` callback that receives the raw payload being
 compressed (plus zone metadata), so hosts can archive originals and re-read
-them later on demand. MosaicCompress stays stateless; this is an interface
-for the architecture boundary, not built-in storage.
+them later on demand. DeepSeek Harness's `spill` / session persistence is
+the reference destination for this integration. MosaicCompress stays
+stateless; this is an interface for the architecture boundary, not built-in
+storage.
 
 ## Milestone 3 — Real-LLM Information Retention Benchmark
 
