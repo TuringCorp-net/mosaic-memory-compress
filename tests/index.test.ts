@@ -260,6 +260,56 @@ async function run(): Promise<void> {
     check('Heavy summary present', res[1].content!.includes('Summary'));
   }
 
+  // ── 16 ──
+  section('16. Light compress: LLM misses an entry → original preserved verbatim (no truncation)');
+  {
+    const msgs = makeConv(40);
+    // The mock only returns entries for even indexes; index 1 (assistant of
+    // round 1) is missing. Make it long so truncation would be visible.
+    msgs[2].content = 'LONG CONTENT '.repeat(50) + 'TAIL-MARKER';
+    const cfg = { ...baseCfg, callLLM: async () => {
+      const items: { i: number; c: string }[] = [];
+      for (let i = 0; i < 40; i += 2) items.push({ i, c: '[compressed]' });
+      return JSON.stringify(items);
+    }};
+    const res = await mosaicCompress(msgs, cfg);
+    checkEq('Count unchanged', res.length, msgs.length);
+    check('Compressed entries still applied', res[1].content!.includes('[compressed]'));
+    check('Missing entry keeps full original content', res[2].content === msgs[2].content);
+  }
+
+  // ── 17 ──
+  section('17. LLM returns Markdown-fenced JSON → parsed correctly');
+  {
+    const msgs = makeConv(40);
+    const cfg = { ...baseCfg, callLLM: async (_sp: string, input: string) => {
+      const match = input.match(/compress the following (\d+) messages/);
+      const n = match ? parseInt(match[1]) : 20;
+      const items: { i: number; c: string }[] = [];
+      for (let i = 0; i < n; i++) items.push({ i, c: '[compressed]' });
+      return 'Here is the result:\n\`\`\`json\n' + JSON.stringify(items) + '\n\`\`\`';
+    }};
+    const res = await mosaicCompress(msgs, cfg);
+    check('Fenced JSON parsed and applied', res[1].content!.includes('[compressed]'));
+  }
+
+  // ── 18 ──
+  section('18. Invalid configs throw TypeError');
+  {
+    const msgs = makeConv(10);
+    let threw = false;
+    try { await mosaicCompress(msgs, { ...baseCfg, lightWindow: 0 }); } catch (err) { threw = (err as Error).name === 'TypeError'; }
+    check('lightWindow=0 throws TypeError', threw);
+
+    threw = false;
+    try { await mosaicCompress(msgs, { ...baseCfg, lightStart: 30, heavyStart: 20 }); } catch (err) { threw = (err as Error).name === 'TypeError'; }
+    check('heavyStart <= lightStart throws TypeError', threw);
+
+    threw = false;
+    try { await mosaicCompress(msgs, { ...baseCfg, lightStart: -5 }); } catch (err) { threw = (err as Error).name === 'TypeError'; }
+    check('negative lightStart throws TypeError', threw);
+  }
+
   // ── Summary ──
   console.log(`\n══════════════════════════════════════════`);
   console.log(`  Total: ${PASS + FAIL}  |  ✅ PASS: ${PASS}  |  ❌ FAIL: ${FAIL}`);

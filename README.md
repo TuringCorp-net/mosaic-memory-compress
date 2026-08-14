@@ -76,6 +76,19 @@ const compressed = await mosaicCompress(messages, config);
 | `heavyWindow` | `number` | `10` | Anti-jitter for heavy compression |
 | `callLLM` | `(sys: string, user: string) => Promise<string>` | *required* | Your LLM call function |
 
+### `DEFAULT_CONFIG`
+
+Prefer starting from the exported defaults and overriding only what you need:
+
+```typescript
+import { mosaicCompress, DEFAULT_CONFIG, type MosaicConfig } from 'mosaic-compress';
+
+const config: MosaicConfig = { ...DEFAULT_CONFIG, callLLM: async (sys, user) => { /* ... */ } };
+```
+
+All numeric fields must be positive integers (windows) / non-negative integers (starts),
+and `heavyStart` must be greater than `lightStart`. Invalid configs throw a `TypeError`.
+
 ### `Message`
 
 ```typescript

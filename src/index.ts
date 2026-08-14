@@ -57,6 +57,34 @@ export const DEFAULT_CONFIG: Omit<MosaicConfig, 'callLLM'> = {
   heavyWindow: 10,
 };
 
+/**
+ * Validates user-provided config before any work is done.
+ * Throws a clear TypeError instead of silently producing NaN or
+ * nonsensical zone boundaries.
+ */
+function validateConfig(config: MosaicConfig): void {
+  if (!Number.isInteger(config.lightStart) || config.lightStart < 0) {
+    throw new TypeError(
+      `[mosaic_compress] lightStart must be a non-negative integer, got ${config.lightStart}`,
+    );
+  }
+  if (!Number.isInteger(config.lightWindow) || config.lightWindow <= 0) {
+    throw new TypeError(
+      `[mosaic_compress] lightWindow must be a positive integer, got ${config.lightWindow}`,
+    );
+  }
+  if (!Number.isInteger(config.heavyWindow) || config.heavyWindow <= 0) {
+    throw new TypeError(
+      `[mosaic_compress] heavyWindow must be a positive integer, got ${config.heavyWindow}`,
+    );
+  }
+  if (!Number.isInteger(config.heavyStart) || config.heavyStart <= config.lightStart) {
+    throw new TypeError(
+      `[mosaic_compress] heavyStart (${config.heavyStart}) must be an integer greater than lightStart (${config.lightStart})`,
+    );
+  }
+}
+
 // ============================================================
 // Main entry point
 // ============================================================
@@ -76,6 +104,8 @@ export async function mosaicCompress(
   messages: Message[],
   config: MosaicConfig,
 ): Promise<Message[]> {
+  validateConfig(config);
+
   const hasSystem = messages.length > 0 && messages[0].role === 'system';
   const sysMsg = hasSystem ? [messages[0]] : [];
   const history = hasSystem ? messages.slice(1) : messages;
@@ -181,16 +211,30 @@ Output ONLY a JSON array (no other text):
   }
 }
 
+/**
+ * Extracts the first JSON array from an LLM reply.
+ * Tolerates Markdown code fences (```json ... ```) and stray prose —
+ * both are common with real LLM outputs.
+ */
+function extractJsonArray(raw: string): string | null {
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const body = fenced ? fenced[1] : raw;
+  const m = body.match(/\[[\s\S]*\]/);
+  return m ? m[0] : null;
+}
+
 function parseLightResult(raw: string, original: Message[]): Message[] {
   try {
-    const m = raw.match(/\[[\s\S]*\]/);
-    if (!m) return original;
-    const items: { i: number; c: string }[] = JSON.parse(m[0]);
+    const arr = extractJsonArray(raw);
+    if (!arr) return original;
+    const items: { i: number; c: string }[] = JSON.parse(arr);
     const map = new Map<number, string>();
     for (const item of items) map.set(item.i, item.c);
     return original.map((msg, i) => {
       const c = map.get(i);
-      return c && c.length > 0 ? { ...msg, content: c } : { ...msg, content: (msg.content || '').substring(0, 100) };
+      // Missing/invalid entry → keep the original message verbatim.
+      // Never silently truncate: that would destroy information.
+      return c && c.length > 0 ? { ...msg, content: c } : msg;
     });
   } catch {
     return original;
@@ -256,9 +300,9 @@ Output ONLY a JSON array (no other text):
 
 function parseHeavyResult(raw: string): Message[] {
   try {
-    const m = raw.match(/\[[\s\S]*\]/);
-    if (!m) throw new Error('No JSON array found');
-    const items: { role: string; content: string }[] = JSON.parse(m[0]);
+    const arr = extractJsonArray(raw);
+    if (!arr) throw new Error('No JSON array found');
+    const items: { role: string; content: string }[] = JSON.parse(arr);
     return items.slice(0, 2).map(item => ({
       role: item.role as 'user' | 'assistant',
       content: item.content || '',
