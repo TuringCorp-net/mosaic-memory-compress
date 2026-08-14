@@ -177,9 +177,13 @@ not part of this module's default path.
 - **Originals are never deleted.** Replacement shadows them; `dsh-session-query`
   can retrieve shadowed events. No extra persistence needed in v1 of the module.
 - **The checkpoint node is the heavy summary**; bounded by `maxTokens`.
-- **Two LLM calls per trigger** by default (Light LLM distillation + Heavy
-  summarization) — same as the library; an optional **rules-only Light mode**
-  reduces this to one call (Heavy only) for zero-cost deployments.
+- **Light distillation is per-message**: one small LLM call per message
+  (plain-text output), NOT one big batched call. Learned from a real-data
+  failure: batching 200+ messages in one call truncates the model output
+  (silently disabling all Light compression) and makes cross-message index
+  alignment error-prone. Per-message keeps input small, output structure-free
+  and never truncates. An optional **rules-only Light mode** reduces model
+  calls to zero for zero-cost deployments.
 - Compaction markers (`compaction/start|end`) already give the host durable
   records of what happened (≈ the library's onCompress event).
 

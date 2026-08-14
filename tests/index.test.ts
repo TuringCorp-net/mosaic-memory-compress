@@ -65,20 +65,15 @@ function countMsgs(msgs: Message[]): number {
 // ============================================================
 
 function mockLight(): MosaicConfig['callLLM'] {
+  // Per-message distillation: one plain-text reply per call.
   return async (_sp: string, input: string) => {
-    const match = input.match(/compress the following (\d+) messages/);
-    const n = match ? parseInt(match[1]) : 20;
-    const items: { i: number; c: string }[] = [];
-    for (let i = 0; i < n; i++) {
-      const isUser = i % 2 === 0;
-      items.push({ i, c: isUser ? '[compressed] User discussed creative topics' : '[compressed] Assistant gave suggestions' });
-    }
-    return JSON.stringify(items);
+    const role = input.startsWith('[Role] User') ? 'User' : input.startsWith('[Role] tool') ? 'tool' : 'Assistant';
+    return '[compressed] ' + role + ' distilled content';
   };
 }
 
 function mockLightBad(): MosaicConfig['callLLM'] {
-  return async () => 'This is not valid JSON at all.';
+  return async () => ''; // empty reply → keep original
 }
 
 function mockLightThrow(): MosaicConfig['callLLM'] {
@@ -96,7 +91,7 @@ function mockBoth(): MosaicConfig['callLLM'] {
   const light = mockLight();
   const heavy = mockHeavy();
   return async (sp, inp) => {
-    return inp.includes('compress the following') ? light(sp, inp) : heavy(sp, inp);
+    return inp.startsWith('[Role]') ? light(sp, inp) : heavy(sp, inp);
   };
 }
 
@@ -261,21 +256,20 @@ async function run(): Promise<void> {
   }
 
   // ── 16 ──
-  section('16. Light compress: LLM misses an entry → original preserved verbatim (no truncation)');
+  section('16. Light compress: empty reply for one message → original preserved verbatim');
   {
     const msgs = makeConv(40);
-    // The mock only returns entries for even indexes; index 1 (assistant of
-    // round 1) is missing. Make it long so truncation would be visible.
+    // The mock returns an empty reply for the round-1 assistant (long content);
+    // every other message gets distilled. Empty must keep the original.
     msgs[2].content = 'LONG CONTENT '.repeat(50) + 'TAIL-MARKER';
-    const cfg = { ...baseCfg, callLLM: async () => {
-      const items: { i: number; c: string }[] = [];
-      for (let i = 0; i < 40; i += 2) items.push({ i, c: '[compressed]' });
-      return JSON.stringify(items);
+    const cfg = { ...baseCfg, callLLM: async (_sp: string, input: string) => {
+      if (input.includes('TAIL-MARKER')) return '';
+      return '[compressed] distilled';
     }};
     const res = await mosaicCompress(msgs, cfg);
     checkEq('Count unchanged', res.length, msgs.length);
     check('Compressed entries still applied', res[1].content!.includes('[compressed]'));
-    check('Missing entry keeps full original content', res[2].content === msgs[2].content);
+    check('Empty reply keeps full original content', res[2].content === msgs[2].content);
   }
 
   // ── 17 ──

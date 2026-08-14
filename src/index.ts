@@ -206,77 +206,39 @@ async function runLightCompressLLM(
   messages: Message[],
   config: MosaicConfig,
 ): Promise<Message[]> {
-  const msgLines = messages.map((m, i) => {
-    const content = m.content || '';
+  // Per-message distillation: ONE LLM call per message, plain-text output.
+  // Batching many messages into one call is deliberately avoided:
+  //  - a large batch blows the model's output budget (truncated JSON → total
+  //    fallback, silently losing all compression), and
+  //  - cross-message index alignment is error-prone for the model.
+  // One call per message keeps input small, output tiny and structure-free.
+  const systemPrompt = `You are a dialogue compressor. Compress the message below to its essential core — remove filler words, repetition, and small talk. Preserve the original language of the input.
+
+## Rules
+1. Keep: the intent, decisions, preferences, feedback, conclusions, commitments, key suggestions
+2. Remove: filler words, repeated confirmations, small talk, completed tool-call processes
+3. Tool results (code, file contents, web content): summarize to the essential conclusion in 1-3 lines
+4. Output ONLY the compressed text — no quotes, no prefixes, no explanations`;
+
+  const results = await Promise.all(messages.map(async (m) => {
     const roleLabel = m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : m.role;
-    return `[${i}] ${roleLabel}: ${content}`;
-  }).join('\n\n');
-
-  const systemPrompt = `You are a dialogue compressor. Compress each message below to its essential core — remove filler words, repetition, and small talk. Preserve the original language of the input.
-
-## Principles
-1. Compress each message independently. Output order and numbering MUST match input exactly.
-2. Preserve: user decisions, preferences, feedback, assistant conclusions, commitments, key suggestions
-3. Remove: filler words, repeated confirmations, small talk, completed tool-call processes
-4. Keep each compressed message concise (≤80 words)
-5. Tool-call transcripts: for assistant messages that carry tool_calls, compress
-   the prose but keep the function call intact in your mind; for role "tool"
-   messages, compress the result to its essential conclusion (they are usually
-   the largest messages). NEVER reorder or drop indices.
-
-## Output format
-Output ONLY a JSON array (no other text):
-[{"i": <index>, "c": "<compressed content>"}, ...]`;
-
-  try {
-    const content = await config.callLLM(
-      systemPrompt,
-      `Please compress the following ${messages.length} messages:\n\n${msgLines}`,
-    );
-    return parseLightResult(content, messages);
-  } catch (err) {
-    console.error('[mosaic_compress] Light Compress LLM call failed:', (err as Error).message);
-    return messages;
-  }
-}
-
-/**
- * Extracts the first JSON array from an LLM reply.
- * Tolerates Markdown code fences (```json ... ```) and stray prose —
- * both are common with real LLM outputs.
- */
-function extractJsonArray(raw: string): string | null {
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const body = fenced ? fenced[1] : raw;
-  const m = body.match(/\[[\s\S]*\]/);
-  return m ? m[0] : null;
-}
-
-function parseLightResult(raw: string, original: Message[]): Message[] {
-  try {
-    const arr = extractJsonArray(raw);
-    if (!arr) return original;
-    const items: { i: number; c: string }[] = JSON.parse(arr);
-    const map = new Map<number, string>();
-    for (const item of items) map.set(item.i, item.c);
-    return original.map((msg, i) => {
-      const c = map.get(i);
-      if (!c || c.length === 0) return msg; // missing → keep verbatim, never truncate
-
-      const next: Message = { ...msg, content: c };
-      // Structural fields must survive compression so the message array stays
-      // valid for OpenAI-compatible APIs:
-      //  - tool_calls: pairing with following tool messages depends on the
-      //    assistant message having tool_calls; keep the skeleton.
-      //  - tool_call_id: same pairing for role:tool messages; keep it.
-      //  - reasoning_content: stripped — it is noise for the next turn and is
-      //    not validated by APIs.
+    try {
+      const content = await config.callLLM(
+        systemPrompt,
+        `[Role] ${roleLabel}\n\n${m.content || ''}`,
+      );
+      const c = (content || '').trim();
+      if (!c) return m;
+      // Keep structural fields (tool_calls / tool_call_id pairing); strip reasoning.
+      const next: Message = { ...m, content: c };
       delete (next as { reasoning_content?: string }).reasoning_content;
       return next;
-    });
-  } catch {
-    return original;
-  }
+    } catch (err) {
+      console.error('[mosaic_compress] Light Compress LLM call failed:', (err as Error).message);
+      return m;
+    }
+  }));
+  return results;
 }
 
 // ============================================================
@@ -346,6 +308,18 @@ Output ONLY a JSON array (no other text):
       { role: 'assistant', content: '[Acknowledged] Issue does not affect the conversation.' },
     ];
   }
+}
+
+/**
+ * Extracts the first JSON array from an LLM reply.
+ * Tolerates Markdown code fences (```json ... ```) and stray prose —
+ * both are common with real LLM outputs.
+ */
+function extractJsonArray(raw: string): string | null {
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const body = fenced ? fenced[1] : raw;
+  const m = body.match(/\[[\s\S]*\]/);
+  return m ? m[0] : null;
 }
 
 function parseHeavyResult(raw: string): Message[] {
