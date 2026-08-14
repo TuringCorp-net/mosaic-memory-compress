@@ -223,6 +223,48 @@ dialogues ever become real, the multi-level model remains available as a
 configuration-level extension (a granularity table) without touching the
 algorithm — but it is not implemented today.
 
-## 9. License
+## 9. Empirical Case Study: One Event, Three Memory Carriers
+
+> A real experiment, anonymized (participants and topic are not reproduced);
+> only the methodological conclusions are kept. The setup is reproducible —
+> any "multi-round design discussion + two compression schemes" combination
+> yields the same comparison.
+
+**The event.** Two participants — a human designer and an AI assistant — spent
+several rounds discussing *compression-granularity design*: merge ratios
+(2-to-1, 5-to-1, 10-to-1), how each tier maps to human memory stages, and the
+engineering conclusion to ship two levels while keeping finer tiers as a
+configuration-level extension. The outcome was written into the design docs.
+
+**The treatment.** A few rounds later, the same conversation was compressed
+two ways:
+
+- *Archival* (industry default): one threshold-triggered full summary,
+  leaving only a structured brief;
+- *Mnemonic* (this library): recent 30 rounds verbatim, older rounds distilled
+  per message, ancient rounds merged into a constant-size summary.
+
+**The results.**
+
+| Carrier | Memory of the event | Form |
+|---|---|---|
+| Human designer | Tiers, mappings, process and conclusion — vivid and accurate | recent memory is verbatim by nature |
+| AI after archival compression | one sentence only ("multi-tier exists but is deliberately not implemented") | tiers, process and data lost; design docs required to recover — "a new person who read a note" |
+| AI after mnemonic compression | a dozen messages kept verbatim, including the designer's own words and experiment data | the discussion sat in the raw zone, never touched; no external reading needed |
+
+**Conclusions.**
+
+1. Humans remember recent events verbatim and keep only lessons and rules from
+   ancient ones — direct behavioral evidence for the tier table in §8.1.
+2. Archival compression preserves semantics (rules/conclusions) but loses
+   events (process/detail), and the loss is invisible — the model cannot know
+   what it has forgotten, nor compensate for it.
+3. Mnemonic compression matches human behavior because the recent window is
+   never touched: the AI can restate the discussion from context alone.
+4. "Never compress the recent N rounds" is therefore not conservatism but the
+   true source of conversational continuity — continuity rests on recent
+   fidelity, not on the quality of any single summary.
+
+## 10. License
 
 MIT
