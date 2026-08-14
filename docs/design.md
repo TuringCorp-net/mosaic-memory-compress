@@ -180,6 +180,77 @@ They complement each other: persistent memory captures "who the user is," Mosaic
 
 ---
 
-## 10. License
+
+## 10. Formal Model and the Engineering Choice
+
+> This section is the **theoretical foundation** of the algorithm, not an
+> implementation plan. It explains why MosaicCompress uses two levels
+> (Light + Heavy) and why Heavy's recursive merge is mathematically sound.
+> The exact multi-level model described below is deliberately NOT
+> implemented — see 10.3 for the engineering rationale.
+
+### 10.1 The exact model: position is age, nodes compress
+
+Treat the message array as a sequence of **memory units**:
+
+- **Each user node is one memory unit** (tool rounds add no user node, so the invariant holds).
+- **Position is age**: counting from the tail (newest) toward the head (oldest), deeper position = more ancient.
+- Compression fires once per anti-jitter window (`window`, default 10):
+  - Each window boundary rolls exactly `window` fresh nodes into the compressible region,
+  - so **any granularity g ≤ window completes within one window** (10 nodes at 2-to-1 → 5 nodes; 5-to-1 → 2 nodes; 10-to-1 → 1 node),
+  - and granularities above `window` have no independent meaning — "merge more into one" is always achievable by repeating "window-to-1".
+- **The deepest level is incremental Heavy**: each window merges the oldest `window` nodes into a summary of constant size; the summary never grows, the array oscillates and converges to a bound it **never exceeds** (a calculus-style limit).
+
+Granularity tiers map to human memory:
+
+| Memory stage | Human analogue | Granularity |
+|---|---|---|
+| seconds-minutes ago | crystal clear | raw (unchanged) |
+| hours ago | growing fuzzy | g=1 (per-node dehydrate) |
+| days-weeks ago | details lost | g=2 / g=5 (merge nodes) |
+| months ago | only key points | g=10 / g=20 |
+| years ago | mere impressions | incremental Heavy (never grows) |
+
+The human brain is finite yet never "fills up" — the aged perception that
+"time accelerates" is exactly the felt experience of old memories being
+continuously compressed. This model is a discrete simulation of that.
+
+### 10.2 V1's two levels = the 2-tier special case
+
+- **Light (g=1)** = tier one of the exact model: per-node dehydration, node count unchanged.
+- **Heavy (g=∞)** = the incremental-Heavy implementation: recursive merge
+  (summaries of summaries); each window merges only the newly rolled-in
+  `heavyWindow` rounds into the previous summary and always outputs 2
+  messages — the "window-to-1 incremental" of 10.1, with `heavyWindow`
+  substituted for the window.
+
+V1's steady-state derivations (constant message count and token size) are
+therefore direct consequences of the exact model.
+
+### 10.3 Engineering choice: why two levels (Occam's razor)
+
+Real human-AI conversation round counts:
+
+| Scenario | Rounds | Two-level coverage |
+|---|---|---|
+| Simple errand | 3-5 | no trigger (<30), zero cost |
+| Complex feature | 20-30 | boundary trigger |
+| Large project | 40-70 | Light + Heavy once each |
+| Thousand-round dialogue | does not exist | the multi-level model's only target |
+
+The multi-level model (g = 1,2,5,10,20…) would pay — for a scenario that
+does not occur — with higher implementation complexity and more LLM
+compression calls (each merge is a model call; cost grows with tier count).
+Benefit does not justify cost. **Two levels (V1) are the cost/effect
+balance**: full coverage of the real distribution, minimal complexity,
+fewest compression calls.
+
+**Conclusion**: the exact model is the mathematical basis of V1; V1 is the
+right engineering choice in the real distribution. If thousand-round
+dialogues ever become real, the multi-level model remains available as a
+configuration-level extension (a granularity table) without touching the
+algorithm — but it is not implemented today.
+
+## 11. License
 
 MIT
