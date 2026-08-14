@@ -53,10 +53,10 @@ algorithm's mechanism — not LLM quality:
 
 | Rounds | msgs in | msgs out | tokens in | tokens out | ratio | facts kept |
 |---|---:|---:|---:|---:|---:|---:|
-| 100 | 234 | 120 | 9,451 | 4,835 | 48.8% | 5/5 (100%) |
-| 500 | 1,162 | 122 | 47,177 | 5,571 | 88.2% | 25/25 (100%) |
-| 1,000 | 2,310 | 122 | 91,869 | 5,668 | 93.8% | 50/50 (100%) |
-| 5,000 | 11,500 | 120 | 457,484 | 10,055 | 97.8% | 250/250 (100%) |
+| 100 | 234 | 120 | 9,451 | 4,472 | 52.7% | 5/5 (100%) |
+| 500 | 1,162 | 122 | 47,177 | 5,104 | 89.2% | 25/25 (100%) |
+| 1,000 | 2,310 | 122 | 91,869 | 5,307 | 94.2% | 50/50 (100%) |
+| 5,000 | 11,500 | 120 | 457,484 | 9,805 | 97.9% | 250/250 (100%) |
 
 ![Context growth: uncompressed vs MosaicCompress (log scale)](chart.svg)
 
@@ -84,20 +84,21 @@ npm run bench
 
    | budget | 1000r kept | 5000r kept | 5000r tokens out | 5000r ratio |
    |---|---|---:|---:|---:|
-   | 2K | 100% | 26.4% | 5,995 | 98.7% |
-   | 8K | 100% | 100% | 9,530 | 97.9% |
-   | 16K | 100% | 100% | 10,055 | 97.8% |
-   | 32K | 100% | 100% | 10,055 | 97.8% |
-   | 128K | 100% | 100% | 10,055 | 97.8% |
+   | 2K | 100% | 26.4% | 5,745 | 98.7% |
+   | 8K | 100% | 100% | 9,280 | 98.0% |
+   | 16K | 100% | 100% | 9,805 | 97.9% |
+   | 32K | 100% | 100% | 9,805 | 97.9% |
+   | 128K | 100% | 100% | 9,805 | 97.9% |
 
    Raising the budget from the original 1.5K to 8-16K is **pure win**:
    retention 20% → 100% for ~1.7× steady tokens. Beyond the saturation
    point, larger budgets buy nothing until facts outgrow them. The
    budget-to-window ratio (e.g. 16K vs 128K/1M context) is exactly what
    Roadmap M1's adaptive thresholds should decide.
-4. **Compressed token mix**: assistant content dominates (~60%), tool
-   payloads shrink to ~12% after Light compression — confirming that
-   compressing tool results (P0-1 policy) is the biggest win.
+4. **Compressed token mix** (after the Light path actually distills): the
+   raw zone's original user/assistant text dominates (~60%), assistant
+   prose shrinks to ~33%, tool payloads to ~6-10% — confirming that
+   compressing tool results and older prose is where the win is.
 
 ## Analyzing your own conversations
 

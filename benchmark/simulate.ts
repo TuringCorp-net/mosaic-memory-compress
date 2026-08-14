@@ -164,7 +164,7 @@ function pseudoLight(_sp: string, input: string): string {
   const lines = input.split('\n\n');
   const items: { i: number; c: string }[] = [];
   for (const line of lines) {
-    const m = line.match(/^(\d+)\]\s*(User|Assistant|tool|system):\s*([\s\S]*)$/);
+    const m = line.match(/^\[(\d+)\]\s*(User|Assistant|tool|system):\s*([\s\S]*)$/);
     if (!m) continue;
     const i = parseInt(m[1], 10);
     const role = m[2];
