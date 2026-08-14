@@ -16,6 +16,53 @@ Round (R-29) ──→ Round R     │ Raw zone  → keep as-is
 
 **Steady state: constant message count** — `2 + heavyStart × (messages per round)`, e.g. 102 messages for pure two-message rounds, whether at round 60 or round 15,000 (higher, but still constant, when tool-call rounds add messages). The compression ratio approaches 100%.
 
+## Philosophy: Alive Memory, Not a Handover Brief
+
+The industry-standard answer to unbounded conversations is threshold
+summarization: when the window fills up, summarize everything into one brief
+and hand it to a fresh model. The conversation looks like it continues. But
+structurally it is *amnesia followed by reading a diary*:
+
+- **A switch moment.** Memory breaks, then is rebuilt from a single summary call.
+- **Indiscriminate loss.** The freshest instructions are paraphrased too — the
+  exact part that must stay vivid. In our own A/B experiment the brief
+  paraphrased the user's latest instruction and silently dropped an action
+  item ("write the key points into MEMORY").
+- **Invisible loss.** The next model cannot know what the brief omitted, so it
+  cannot compensate.
+
+MosaicCompress models the opposite: biological forgetting. A human does not
+remember round 3 of a 300-round conversation — they keep the lesson, the
+rules, the relationship. The algorithm reproduces that curve inside one
+message array:
+
+```
+recent 30 rounds   → verbatim (vivid — what you are actually working on)
+rounds 30–50       → per-message distillation (shape kept, detail dehydrated)
+rounds 50+         → one heavy pair: identity, environment, permissions, rules
+```
+
+No switch moment, no reset, no length limit. The heavy zone is *semantic
+memory* (rules that must never be forgotten); the middle is recent episodic
+memory; the raw zone is the vivid present. Loss is **visible**: the zone
+structure tells the model what it no longer knows, so it can fetch detail
+from shadowed storage on demand.
+
+| | Threshold summarization (industry) | MosaicCompress |
+|---|---|---|
+| Metaphor | amnesia + diary | continuous vivid memory |
+| Continuity | resets on every compaction | never resets |
+| Loss | indiscriminate, invisible | graduated, visible |
+| Recent turns | paraphrased at the worst moment | always verbatim |
+| Purpose | portable handover brief | unbounded human–AI dialogue |
+
+The two philosophies complement each other: a handover brief serves cold
+starts and long pauses; MosaicCompress serves *staying in the conversation*.
+Combined with a durable host-side store (e.g. a MEMORY.md file), human and AI
+keep talking under the same forgetting curve indefinitely. See
+[docs/design.md](docs/design.md) §8/§10 for the formal position-is-age model
+behind this design.
+
 ## Quick Start
 
 ```bash
