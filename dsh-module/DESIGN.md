@@ -1,153 +1,129 @@
 # MosaicCompress for DeepSeek Harness — System Design
 
-> Status: **prototype implemented** (typecheck + zone/replacement/pipeline tests
-> green against real @deepseek-ai 0.1.0-rc.6 types) | Date: 2026-08-14 | Author: TuringCorp
+> Status: **prototype implemented & tested** (456 lines of source; typecheck +
+> zone/replacement/pipeline test suites green against the real
+> @deepseek-ai 0.1.0-rc.6 packages — no stubs) | Author: TuringCorp
 > This module integrates the mosaic-compress forgetting-curve compression
 > into DeepSeek Harness (DSH) as a pure plugin — **zero source changes to DSH**.
+> 中文版：DESIGN.cn.md
 
 ## 1. Purpose
 
 Bring the V1 mosaic semantics to DSH conversations:
 
-- **Rounds 1-30**: untouched, zero overhead (below threshold)
-- **Rounds 30-50 (Light)**: per-message dehydration — **message count unchanged**
-  - content distilled (filler removed, key intent kept)
-  - tool *result* messages (large code / web / file payloads) compressed to their
-    essential conclusion
-  - `tool_calls` skeleton (function name + arguments) preserved untouched
-  - `tool_call_id` preserved (pairing intact)
-  - `reasoning_content` stripped
-- **Rounds 50+ (Heavy)**: incremental heavy — the whole ancient region folds
-  into one bounded checkpoint that **never exceeds its cap** (summaries of
-  summaries, recursively re-summarized on every trigger)
+- **Rounds 1-30 (raw zone)**: untouched, zero overhead
+- **Rounds 30-50 (light zone)**: per-message dehydration — **message count unchanged**
+- **Rounds 50+ (heavy zone)**: the ancient region folds into ONE bounded
+  checkpoint that **never exceeds its cap** (incremental summary-of-summary)
 
-The integration reuses the official DSH extension points and public session
-APIs only.
+## 2. How it works — the data flow
 
-## 2. DSH extension points used
+A DSH conversation is a **surface array** of nodes (user/assistant/tool
+messages, model-visible order). The engine hooks the official pre-step event:
 
-### 2.1 `CompactionEngine` (capability seam)
-
-`ctx.compaction` is a single-service seam. `@deepseek-ai/dsh-compaction-basic`
-is the shipped backend; this module provides a **replacement backend**:
-
-```ts
-export abstract class CompactionEngine extends Service {
-  abstract compactIfNeeded(agent, trigger, signal): Promise<CompactionResult | null>
-  abstract compactNow(agent, signal, sourceCommandId?): Promise<CompactionResult | null>
-  abstract compactRegion(start, end, agent, signal?): Promise<CompactionResult>
-}
+```
+every agent pre-step → compactIfNeeded(agent, trigger, signal)
+  │
+  ├─ count = genuine user rounds on the surface
+  │         (tool-result messages are role:'user' but source.kind==='tool' —
+  │          they are NOT memory rounds; only real user turns count)
+  │
+  ├─ below threshold OR off-window  → return null  (zero cost, nothing happens)
+  │
+  ├─ LIGHT pass — per-node replacement on the middle zone:
+  │     for each node in rounds [heavyStart, lightStart):
+  │       distilled = LLM call per message (or rules mode, zero cost)
+  │       session.append(same role, distilled content, {
+  │         surfaceOp: { op: 'replace', start: seq, end: seq },  // 1:1
+  │         sourceEventSeqs: [seq],
+  │       })
+  │     → count unchanged; original node goes to shadow (still in log, queryable)
+  │
+  └─ HEAVY pass — official compactRegion() transaction on the ancient zone:
+        one checkpoint node replaces all nodes older than heavyStart
+        → 60 rounds → 51 nodes (10 ancient → 1 checkpoint)
 ```
 
-`BasicCompactionEngine` implements the durable transaction (locking,
-replay-stability checks, `compaction/start|end` markers, checkpoint framing)
-and exposes `summarize()` as the sole subclass customization hook. Our engine
-subclasses it, so the hard parts (durable mutation, tool-pairing balance,
-summary framing) stay official.
+Position-is-age: zones are computed from surface positions (user rounds
+counted from the tail). No round ledger is tracked. Pure zone math lives in
+`src/zones.ts` (`zoneBoundaries(userCount, lightStart, heavyStart)`).
 
-### 2.2 Surface replacement (the key enabler for Light)
+## 3. The four mechanism questions
 
-Session events are append-only, but DSH supports **positional replacement**:
-an appended `user/message` event can declare that it *replaces* an existing
-surface span.
+### 3.1 Light: one LLM call per message (concurrency allowed)
+
+Each light-zone message is distilled by **one small LLM call** (plain-text
+output) — never one big batched call. Learned from a real-data failure:
+batching 200+ messages in one call truncates the model output (silently
+disabling all Light compression) and makes index alignment error-prone.
+
+The prototype's default is **rules mode** (zero LLM cost): oversized tool
+results get head/tail compressed, everything else stays verbatim. Switch to
+`llm` mode via config to enable per-message calls. Calls are independent and
+**may run concurrently** (the current prototype loops serially; a bounded
+concurrency batch is a trivial change). Any failure keeps the original
+message verbatim.
+
+### 3.2 Heavy: never exceeds the cap — with OUR summarization
+
+The heavy checkpoint is produced by **our** summarization, not DSH's:
+
+- `summarize()` is overridden with our **semantic-memory instruction**
+  (identity/environment, hard rules and red lines, project anchors, lessons,
+  current-goal gist) and routed through the conversation's own provider/model.
+- Bounded by `maxTokens` (default 8192) — the cap is **never exceeded, by
+  construction**.
+- Incremental for free: the previous checkpoint node is inside the heavy
+  range, so it gets re-summarized (summary-of-summary) — same property the
+  library's recursive Heavy already has.
+
+The natural fit with DSH: `compactRegion()` already implements "one range →
+one summary node" with the durable transaction (locking, compaction/start|end
+markers, stability checks, checkpoint framing). We reuse the transaction and
+replace only the summarization content — zero DSH changes.
+
+### 3.3 The replacement API (your mental model is correct)
+
+Yes — the conversation is a message array, and one API call replaces **one
+element** of it:
 
 ```ts
-session.append('user/message', dehydratedMessage, {
-  surfaceOp: { op: 'replace', start, end },  // start === end → single-node replace
-  sourceEventSeqs: [/* seqs of replaced nodes */],
+session.append('user/message', newMessage, {
+  surfaceOp: { op: 'replace', start: seq, end: seq },  // start === end → one node
+  sourceEventSeqs: [seq],
 })
 ```
 
-- `start === end` replaces **a single node** — this is what makes per-message
-  dehydration possible with **count unchanged**
-- **All three message roles are replaceable**: `SurfaceEventType` =
-  `'user/message' | 'assistant/message' | 'tool/result'`, so a dehydrated
-  replacement keeps its original role (user→user, assistant→assistant,
-  tool→tool with `tool_call_id`)
-- Replacement copies are **model-only**: the model sees the dehydrated version,
-  the original stays in the log as shadowed history (queryable via
-  `dsh-session-query`, never lost) — exactly the architecture boundary the
-  library README documents
-- This is the same mechanism compaction-basic itself uses for checkpoints
-  (`region.ts`), so it is public, validated API — no source changes
+- The new content enters the model-visible array at that position.
+- The original stays in the session log as **shadowed** history — never
+  deleted, retrievable via session queries.
+- All three surface roles are replaceable (user/assistant/tool-result), so a
+  dehydrated replacement keeps its role and its tool pairing (`toolCallId`).
 
-## 3. Architecture
+### 3.4 Anti-jitter: the counter decides
 
-### 3.1 Repository layout
+A simple counter decides whether to compress:
 
-The module lives as a subdirectory of the mosaic-compress repository:
-
-```
-mosaic_compress/
-├── src/            # the pure library (unchanged)
-├── benchmark/      # simulation + real-LLM spot check (unchanged)
-└── dsh-module/     # ← this integration
-    ├── DESIGN.md
-    ├── package.json        # @turingcorp/dsh-mosaic-compress
-    ├── src/
-    │   └── index.ts        # MosaicCompactionEngine + plugin entry
-    └── tests/
+```ts
+count = genuine user rounds on the surface
+if (count < lightStart) return null                    // below threshold
+if (count % lightWindow !== 0) return null             // off-window (jitter guard)
 ```
 
-### 3.2 Components
+`lightWindow` (default 10) is the anti-jitter window: compression fires only
+at window boundaries, so the conversation never churns. `context-overflow`
+bypasses the window check and forces a run. Returning `null` means "nothing
+happens this step" — the zero-cost path.
 
-```
-MosaicCompactionEngine extends BasicCompactionEngine
-│
-├─ override compactIfNeeded(agent, trigger, signal)
-│   ├─ trigger check (anti-jitter; returns null otherwise — zero cost):
-│   │     count ≥ lightStart && count % lightWindow === 0   → run Light
-│   │     count ≥ heavyStart && count % heavyWindow === 0   → run Heavy
-│   │     trigger === 'context-overflow' → force run regardless of window
-│   ├─ lightPass()   → per-node surface replacements in the Light zone
-│   │                  (executed FIRST; range [heavyStart, lightStart))
-│   └─ heavyPass()   → this.compactRegion(heavyRange) (official transaction)
-│
-├─ override summarize(input, agent, signal)
-│   └─ layered heavy-checkpoint template via ctx.llm (KV-cache friendly:
-│      replay conversation prefix, append instruction as final user message)
-│
-└─ light distillation via ctx.llm (same semantics as the library's Light:
-   LLM-driven dehydration; optional rules-only mode for zero-cost deployments)
-```
+## 4. DSH extension points used
 
-### 3.3 Zone computation
-
-Zones are computed from the **current surface node position** (position-is-age
-model — no original-round ledger is tracked):
-
-```
-surface: [newest ... oldest]
-  positions < lightStart          → raw (untouched)
-  lightStart ≤ pos < heavyStart   → Light: per-node replacement (count unchanged)
-  pos ≥ heavyStart                → Heavy: one checkpoint node
-```
-
-Consequence: after a Heavy pass collapses N nodes into 1, the node count
-resets (e.g. 100 → ~51) and the next trigger fires ~9-10 rounds later —
-trigger rhythm stays near-window, not exact-round. This is the intended
-"position is age" semantics (the model forgets node counts, not true round
-numbers), matching the library's theoretical foundation (design docs §8).
-
-### 3.4 Heavy is incremental for free
-
-On the next trigger, the previous checkpoint node is itself inside the heavy
-range → `summarize()` re-summarizes it (**summary of a summary**). The
-checkpoint text is bounded by `maxTokens`, so the heavy node size is constant
-regardless of conversation length: **the cap is never exceeded, by
-construction** — same property the library's recursive heavy already has.
-
-## 4. Semantics mapping (V1 library ↔ DSH module)
-
-| V1 concept | Library behavior | DSH module behavior |
-|---|---|---|
-| threshold / zero-cost | R < lightStart → return as-is | compactIfNeeded → null (no-op) |
-| anti-jitter | R % window == 0 | same, on user-node count |
-| Light (dehydrate, count unchanged) | rewrite message content in array | append replacement events 1:1 per node, original role preserved (user/assistant/tool) |
-| tool result compression | content distilled, pairing kept | same via replacement; tool_calls skeleton kept |
-| reasoning_content | stripped | stripped (removed from replacement content) |
-| Heavy (incremental, bounded) | recursive summary pair | official compactRegion + bounded checkpoint |
-| original payloads | host responsibility (onCompress) | shadowed in session log (queryable) |
+- `CompactionEngine` seam: `MosaicCompactionEngine extends
+  BasicCompactionEngine`, overriding `compactIfNeeded` (trigger + zone
+  passes) and `summarize` (heavy instruction). The official transaction
+  machinery stays untouched.
+- `session.append` + `surfaceOp: replace`: the key enabler for Light
+  (per-node 1:1 replacement, §3.3). Public, validated API — same mechanism
+  compaction-basic itself uses for checkpoints.
 
 ## 5. Configuration
 
@@ -163,101 +139,64 @@ construction** — same property the library's recursive heavy already has.
     lightWindow: 10
     heavyStart: 50
     heavyWindow: 10
-    # summarization routing (falls back to the session's routed model)
-    summarizationProvider: ''
-    summarizationModel: ''
+    lightDistillMode: 'rules'   # or 'llm' (per-message calls)
+    lightMaxTokens: 1024
     maxTokens: 8192
 ```
 
-Defaults mirror `DEFAULT_CONFIG` of the library. Hosts may also keep the
-library's zones table extension in mind (documented in the design docs) —
-not part of this module's default path.
-
 ## 6. Architecture boundaries
 
-- **Originals are never deleted.** Replacement shadows them; `dsh-session-query`
-  can retrieve shadowed events. No extra persistence needed in v1 of the module.
-- **The checkpoint node is the heavy summary**; bounded by `maxTokens`.
-- **Light distillation is per-message**: one small LLM call per message
-  (plain-text output), NOT one big batched call. Learned from a real-data
-  failure: batching 200+ messages in one call truncates the model output
-  (silently disabling all Light compression) and makes cross-message index
-  alignment error-prone. Per-message keeps input small, output structure-free
-  and never truncates. An optional **rules-only Light mode** reduces model
-  calls to zero for zero-cost deployments.
-- Compaction markers (`compaction/start|end`) already give the host durable
-  records of what happened (≈ the library's onCompress event).
+- **Originals are never deleted** — replacement shadows them; queryable.
+- **The checkpoint node is the heavy summary**, bounded by `maxTokens`.
+- **Light is per-message** (one call per message, plain text) — never batched;
+  optional rules mode reduces LLM calls to zero.
+- Compaction markers (`compaction/start|end`) give the host durable records
+  (≈ the library's `onCompress`).
 
-## 7. Verification plan
+## 7. Prototype status (verified 2026-08-14)
 
-1. **Unit**: dehydration rules — content distilled, tool result compressed,
-   tool_calls skeleton untouched, reasoning stripped (port library tests).
-2. **Integration (real DSH)**: drive a long synthetic conversation; at trigger
-   points assert:
-   - Light zone: node count unchanged, contents dehydrated, pairing intact
-   - Heavy zone: one bounded checkpoint appears; repeated triggers keep it
-     bounded (incremental)
-   - raw zone untouched
-3. **Fact retention**: reuse the benchmark FACT methodology on the folded
-   surface after repeated triggers.
-4. **Real-LLM check**: one real summarization pass (flash model) to validate
-   the checkpoint template quality.
+| Item | Status |
+|---|---|
+| `npm run typecheck` against real 0.1.0-rc.6 types | PASS |
+| `zones.spec` — zone boundaries incl. boundary-equality cases | PASS |
+| `smoke.spec` — single-node surface replacement on a real Session | PASS |
+| `pipe.spec` — 60-round seed → heavy fold 60 → 51 nodes, markers present | PASS |
+
+Source: `src/index.ts` (435 lines) + `src/zones.ts` (21 lines) — 456 lines
+total, same order as the library itself (<500). Tests: 156 lines.
+
+### Known limitations / next steps
+
+1. **`compactNow` (manual `/compact`) is still inherited** from
+   BasicCompactionEngine — a manual trigger currently produces the official
+   one-shot summary instead of the mosaic passes. Unifying it needs a
+   standalone (owner-null) transaction variant.
+2. Tool-result node replacement is type-legal but only user-node replacement
+   was exercised on a real Session — validate a tool round in the harness.
+3. **Not yet mounted in a real DSH profile** (disable `compaction-basic`,
+   load this module, drive a long conversation end-to-end).
+4. Light LLM mode currently loops serially; a bounded-concurrency batch is a
+   trivial follow-up.
 
 ## 8. Risks and open questions
 
-- **Append validation vs single tool-node replacement**: `tool/result` is a
-  valid `SurfaceEventType`, so replacing a lone tool node is type-legal; the
-  append validator's pairing checks must still accept it with `tool_call_id`
-  intact. Validate in the prototype; fallback is replacing the whole round
-  (user+assistant+tool) as a group — count still unchanged per round.
-- **Concurrency/locking**: `compactIfNeeded` runs in the agent's pre-step
-  context; confirm no interleaving with a concurrently running compaction
-  (the engine's own marker logic already serializes heavy; light replacements
-  must not run mid-heavy — prototype check).
-- **KV-cache impact**: replacement events change the middle of the surface,
-  which can invalidate part of the provider prefix cache — same cost class as
-  official compaction; not a new problem.
-- **Trigger granularity**: user-node count is the trigger unit, matching the
-  library; message count may vary with tool rounds (already documented).
+- **API deltas found during implementation** (vs the earlier source reading)
+  do NOT affect the algorithm: (a) `SummarizationInput` /
+  `summarizeWithLlm` are not public package exports → `summarize()` is
+  implemented directly with `ctx.llm.stream` + `BlockAssembler`; (b) tool
+  results are `role:'user'` messages with `source.kind==='tool'`, not a
+  separate role → memory-round counting filters them; (c)
+  `GenerateOptions.provider` is required and `StreamChunk` is a delta
+  stream. The three-zone algorithm, position-is-age zones, Light 1:1
+  replacement and Heavy bounded incrementality all stand unchanged.
+- **Trigger granularity**: user-round count is the trigger unit, matching the
+  library; tool rounds add nodes but no rounds (already documented).
+- **KV-cache impact**: replacement events change the middle of the surface —
+  same cost class as official compaction; not a new problem.
 
 ## 9. Out of scope
 
-- Multi-tier granularity pyramid (theory documented in design docs; not
+- Multi-tier granularity pyramid (theory in design docs; deliberately not
   implemented — engineering choice).
 - MCP server form factor (possible future).
 - Changes to DSH source code (this module deliberately ships zero).
-
-## 10. Prototype status (2026-08-14)
-
-Implemented in `src/index.ts` (+ `src/zones.ts`):
-
-- `MosaicCompactionEngine extends BasicCompactionEngine` — official durable
-  transaction reused; zones, light pass and heavy instruction are ours.
-- `zoneBoundaries()` — pure position-is-age zone math (unit-tested).
-- Light pass: 1:1 per-node surface replacement, role preserved
-  (user/assistant/tool-result), tool-call blocks and `toolCallId` untouched.
-- `rules` light mode (default): zero-LLM-cost; oversized tool results
-  head/tail-compressed, everything else verbatim. `llm` mode: one small
-  per-message call, failure degrades to rules.
-- Heavy: `compactRegion()` official transaction + `summarize()` override
-  with the semantic-memory instruction (bounded by `maxTokens`; the previous
-  checkpoint re-enters the range → summary-of-summary by construction).
-
-Verified (tests/ against real rc.6 packages):
-
-| Test | Result |
-|---|---|
-| `npm run typecheck` (real 0.1.0-rc.6 types, no vendor stubs) | PASS |
-| `zones.spec` — zone boundaries incl. boundary equality cases | PASS |
-| `smoke.spec` — single-node surface replacement on a real Session | PASS |
-| `pipe.spec` — 60-round seed, anti-jitter, heavy fold 60 → 51 nodes, compaction markers | PASS |
-
-Known limitations / next:
-
-- `compactNow` (manual `/compact`) is still inherited from
-  BasicCompactionEngine (official one-shot summary). Unifying it with the
-  mosaic passes needs a standalone (owner-null) transaction variant.
-- Tool-node replacement is type-legal but only user-node replacement was
-  exercised on a real Session; validate a tool round in the DSH harness.
-- Mount in a real DSH profile (cordis.patch.yml: disable `compaction-basic`,
-  load `@turingcorp/dsh-mosaic-compress`) and drive a long conversation.
