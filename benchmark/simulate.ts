@@ -35,7 +35,13 @@ const TOOL_ROUND_RATE = 0.15;      // ~15% of rounds contain a tool call
 const REASONING_RATE = 0.3;        // ~30% of assistant replies carry reasoning_content
 const FACT_EVERY = 20;             // plant one fact every N rounds
 const FACT_RETENTION = 1.0;        // pseudo-compressor fact retention (1 = perfect)
-const MAX_HEAVY_TOKENS = 1500;     // simulated max_tokens budget for the heavy summary
+// Default simulated summary budget. Real output windows: DeepSeek V4 up to
+// 384K, Claude/Gemini ~64K, GPT 16-64K — a 1.5K summary budget is unrealistically
+// small. 16K keeps summaries bounded while retaining far more facts.
+const DEFAULT_HEAVY_BUDGET = 16384;
+
+// Budget sweep values (tokens) — shows the retention-vs-steady-state tradeoff.
+const BUDGET_SWEEP = [2048, 8192, 16384, 32768, 131072];
 
 // ============================================================
 // Deterministic PRNG (mulberry32) — results are reproducible
@@ -176,8 +182,8 @@ function pseudoLight(_sp: string, input: string): string {
   return JSON.stringify(items);
 }
 
-function pseudoHeavy(_sp: string, input: string): string {
-  // Collect all facts present in the heavy zone input, bounded by MAX_HEAVY_TOKENS.
+function pseudoHeavy(_sp: string, input: string, heavyBudget: number): string {
+  // Collect all facts present in the heavy zone input, bounded by heavyBudget.
   const facts: string[] = [];
   for (const m of input.matchAll(/FACT-\d+:[^\n,]*/g)) facts.push(m[0]);
   const unique = [...new Set(facts)];
@@ -186,8 +192,8 @@ function pseudoHeavy(_sp: string, input: string): string {
   for (let i = unique.length - 1; i >= 0; i--) { // keep NEWEST facts first under budget
     const f = unique[i];
     const cost = f.length;
-    if (budget + cost > MAX_HEAVY_TOKENS && kept.length > 0) break;
-    if (budget + cost > MAX_HEAVY_TOKENS) continue;
+    if (budget + cost > heavyBudget && kept.length > 0) break;
+    if (budget + cost > heavyBudget) continue;
     kept.unshift(f);
     budget += cost;
   }
@@ -200,9 +206,9 @@ function pseudoHeavy(_sp: string, input: string): string {
   ]);
 }
 
-function makePseudoLLM(): MosaicConfig['callLLM'] {
+function makePseudoLLM(heavyBudget: number): MosaicConfig['callLLM'] {
   return async (sp, input) => {
-    if (sp.includes('exactly 2 messages')) return pseudoHeavy(sp, input);
+    if (sp.includes('exactly 2 messages')) return pseudoHeavy(sp, input, heavyBudget);
     return pseudoLight(sp, input);
   };
 }
@@ -210,7 +216,7 @@ function makePseudoLLM(): MosaicConfig['callLLM'] {
 // ============================================================
 // Analysis
 // ============================================================
-async function analyze(rounds: number): Promise<void> {
+async function analyze(rounds: number, heavyBudget: number = DEFAULT_HEAVY_BUDGET): Promise<void> {
   FACTS.clear();
   factCounter = 0;
   const rng = mulberry32(rounds * 7919 + 13);
@@ -220,7 +226,7 @@ async function analyze(rounds: number): Promise<void> {
 
   const config: MosaicConfig = {
     lightStart: 30, lightWindow: 10, heavyStart: 50, heavyWindow: 10,
-    callLLM: makePseudoLLM(),
+    callLLM: makePseudoLLM(heavyBudget),
   };
 
   const out = await mosaicCompress(raw, config);
@@ -258,6 +264,36 @@ async function analyze(rounds: number): Promise<void> {
   console.log('    compressed token breakdown: ' + Object.entries(byRole).map(([k, v]) => k + '=' + Math.round(v)).join('  '));
 }
 
+// Compact variant for the budget sweep: returns numbers for tabular output.
+async function analyzeCompact(rounds: number, heavyBudget: number) {
+  FACTS.clear();
+  factCounter = 0;
+  const rng = mulberry32(rounds * 7919 + 13);
+  const raw = makeConversation(rounds, rng);
+  const rawTokens = totalTokens(raw);
+  const rawFacts = [...FACTS.entries()];
+  const config: MosaicConfig = {
+    lightStart: 30, lightWindow: 10, heavyStart: 50, heavyWindow: 10,
+    callLLM: makePseudoLLM(heavyBudget),
+  };
+  const out = await mosaicCompress(raw, config);
+  const cTokens = totalTokens(out);
+  const outText = out.map(m => m.content || '').join('\n');
+  let kept = 0;
+  for (const [, factText] of rawFacts) {
+    const tag = factText.split(':')[0];
+    if (outText.includes(tag)) kept++;
+  }
+  return {
+    msgs: out.filter(m => m.role !== 'system').length,
+    tokens: cTokens,
+    ratio: 100 * (1 - cTokens / rawTokens),
+    kept,
+    total: rawFacts.length,
+    keptPct: 100 * kept / Math.max(1, rawFacts.length),
+  };
+}
+
 // ============================================================
 // User-file mode: analyze a provided conversation file
 // ============================================================
@@ -281,7 +317,7 @@ async function analyzeFile(path: string): Promise<void> {
   const rawTokens = totalTokens(raw);
   const config: MosaicConfig = {
     lightStart: 30, lightWindow: 10, heavyStart: 50, heavyWindow: 10,
-    callLLM: makePseudoLLM(),
+    callLLM: makePseudoLLM(DEFAULT_HEAVY_BUDGET),
   };
 
   console.log('File: ' + path);
@@ -316,10 +352,26 @@ async function main(): Promise<void> {
   console.log('║  (real algorithm, rule-based pseudo-LLM, zero LLM cost) ║');
   console.log('╚══════════════════════════════════════════════════════════╝');
   console.log('Parameters: toolRoundRate=' + TOOL_ROUND_RATE + ' reasoningRate=' + REASONING_RATE +
-    ' factEvery=' + FACT_EVERY + ' factRetention=' + FACT_RETENTION + ' maxHeavyTokens=' + MAX_HEAVY_TOKENS);
+    ' factEvery=' + FACT_EVERY + ' factRetention=' + FACT_RETENTION + ' defaultHeavyBudget=' + DEFAULT_HEAVY_BUDGET);
   console.log('');
-  console.log('Sweep:');
-  for (const rounds of [100, 500, 1000, 5000]) {
+  // ── Budget sensitivity: retention vs steady-state size tradeoff ──
+  console.log('');
+  console.log('── Budget sensitivity (heavy summary max tokens) ──');
+  console.log('  budget    rounds   msgs out   tokens out   ratio    facts kept');
+  for (const budget of BUDGET_SWEEP) {
+    for (const rounds of [1000, 5000]) {
+      const r = await analyzeCompact(rounds, budget);
+      console.log('  ' + String(budget).padStart(8) + '  ' + String(rounds).padStart(6) +
+        '   ' + String(r.msgs).padStart(8) + '   ' + String(r.tokens).padStart(10) +
+        '   ' + r.ratio.toFixed(1).padStart(5) + '%   ' + r.kept + '/' + r.total +
+        ' (' + r.keptPct.toFixed(1) + '%)');
+    }
+  }
+
+  // ── Standard sweep with the default budget ──
+  console.log('');
+  console.log('Sweep (default heavy budget ' + DEFAULT_HEAVY_BUDGET + '):');
+  for (const rounds of [100, 500, 1000, 5000, 20000]) {
     await analyze(rounds);
   }
   console.log('');
