@@ -165,23 +165,7 @@ const compressed = await mosaicCompress(messages, config);
 
 ---
 
-## 9. Relationship to Memory Systems
-
-MosaicCompress is orthogonal to persistent memory systems (L1/L2/L3 memory hierarchy, vector databases, etc.):
-
-| Dimension | Persistent Memory | MosaicCompress |
-|-----------|-------------------|----------------|
-| **What it does** | Extract persistent facts across sessions | Manage context window density |
-| **Output** | Memory files → inject into system prompt | Compressed blocks → stay in messages array |
-| **Lifetime** | Cross-session, persistent | Within current "logical conversation" |
-| **Trigger** | Cron / conditional | Round threshold |
-
-They complement each other: persistent memory captures "who the user is," MosaicCompress manages "what we're talking about right now."
-
----
-
-
-## 10. Formal Model and the Engineering Choice
+## 9. Formal Model and the Engineering Choice
 
 > This section is the **theoretical foundation** of the algorithm, not an
 > implementation plan. It explains why MosaicCompress uses two levels
@@ -189,7 +173,7 @@ They complement each other: persistent memory captures "who the user is," Mosaic
 > The exact multi-level model described below is deliberately NOT
 > implemented — see 10.3 for the engineering rationale.
 
-### 10.1 The exact model: position is age, nodes compress
+### 9.1 The exact model: position is age, nodes compress
 
 Treat the message array as a sequence of **memory units**:
 
@@ -215,7 +199,7 @@ The human brain is finite yet never "fills up" — the aged perception that
 "time accelerates" is exactly the felt experience of old memories being
 continuously compressed. This model is a discrete simulation of that.
 
-### 10.2 V1's two levels = the 2-tier special case
+### 9.2 V1's two levels = the 2-tier special case
 
 - **Light (g=1)** = tier one of the exact model: per-node dehydration, node count unchanged.
 - **Heavy (g=∞)** = the incremental-Heavy implementation: recursive merge
@@ -227,7 +211,7 @@ continuously compressed. This model is a discrete simulation of that.
 V1's steady-state derivations (constant message count and token size) are
 therefore direct consequences of the exact model.
 
-### 10.3 Engineering choice: why two levels (Occam's razor)
+### 9.3 Engineering choice: why two levels (Occam's razor)
 
 Real human-AI conversation round counts:
 
@@ -251,6 +235,6 @@ dialogues ever become real, the multi-level model remains available as a
 configuration-level extension (a granularity table) without touching the
 algorithm — but it is not implemented today.
 
-## 11. License
+## 10. License
 
 MIT
