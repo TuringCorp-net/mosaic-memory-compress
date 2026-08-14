@@ -1,0 +1,25 @@
+{
+  "name": "@turingcorp/dsh-mosaic-compress",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Natural forgetting-curve compaction backend for DeepSeek Harness (prototype)",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx tests/zones.spec.ts && tsx tests/smoke.spec.ts && tsx tests/pipe.spec.ts"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-compaction": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-compaction-basic": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-session": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-agent": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "^0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^22",
+    "tsx": "^4"
+  }
+}

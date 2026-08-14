@@ -1,6 +1,7 @@
 # MosaicCompress for DeepSeek Harness — System Design
 
-> Status: draft | Date: 2026-08-14 | Author: TuringCorp
+> Status: **prototype implemented** (typecheck + zone/replacement/pipeline tests
+> green against real @deepseek-ai 0.1.0-rc.6 types) | Date: 2026-08-14 | Author: TuringCorp
 > This module integrates the mosaic-compress forgetting-curve compression
 > into DeepSeek Harness (DSH) as a pure plugin — **zero source changes to DSH**.
 
@@ -225,3 +226,38 @@ not part of this module's default path.
   implemented — engineering choice).
 - MCP server form factor (possible future).
 - Changes to DSH source code (this module deliberately ships zero).
+
+## 10. Prototype status (2026-08-14)
+
+Implemented in `src/index.ts` (+ `src/zones.ts`):
+
+- `MosaicCompactionEngine extends BasicCompactionEngine` — official durable
+  transaction reused; zones, light pass and heavy instruction are ours.
+- `zoneBoundaries()` — pure position-is-age zone math (unit-tested).
+- Light pass: 1:1 per-node surface replacement, role preserved
+  (user/assistant/tool-result), tool-call blocks and `toolCallId` untouched.
+- `rules` light mode (default): zero-LLM-cost; oversized tool results
+  head/tail-compressed, everything else verbatim. `llm` mode: one small
+  per-message call, failure degrades to rules.
+- Heavy: `compactRegion()` official transaction + `summarize()` override
+  with the semantic-memory instruction (bounded by `maxTokens`; the previous
+  checkpoint re-enters the range → summary-of-summary by construction).
+
+Verified (tests/ against real rc.6 packages):
+
+| Test | Result |
+|---|---|
+| `npm run typecheck` (real 0.1.0-rc.6 types, no vendor stubs) | PASS |
+| `zones.spec` — zone boundaries incl. boundary equality cases | PASS |
+| `smoke.spec` — single-node surface replacement on a real Session | PASS |
+| `pipe.spec` — 60-round seed, anti-jitter, heavy fold 60 → 51 nodes, compaction markers | PASS |
+
+Known limitations / next:
+
+- `compactNow` (manual `/compact`) is still inherited from
+  BasicCompactionEngine (official one-shot summary). Unifying it with the
+  mosaic passes needs a standalone (owner-null) transaction variant.
+- Tool-node replacement is type-legal but only user-node replacement was
+  exercised on a real Session; validate a tool round in the DSH harness.
+- Mount in a real DSH profile (cordis.patch.yml: disable `compaction-basic`,
+  load `@turingcorp/dsh-mosaic-compress`) and drive a long conversation.
