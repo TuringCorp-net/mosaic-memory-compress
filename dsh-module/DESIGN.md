@@ -57,20 +57,20 @@ output) — never one big batched call. Learned from a real-data failure:
 batching 200+ messages in one call truncates the model output (silently
 disabling all Light compression) and makes index alignment error-prone.
 
-The prototype's default is **rules mode** (zero LLM cost): oversized tool
-results get head/tail compressed, everything else stays verbatim. Switch to
-`llm` mode via config to enable per-message calls. Calls are independent and
-**may run concurrently** (the current prototype loops serially; a bounded
-concurrency batch is a trivial change). Any failure keeps the original
-message verbatim.
+Calls are **independent and run concurrently** (library
+semantics: `Promise.all` over the zone). **Any failure keeps the original
+message verbatim** — compression never blocks the conversation (graceful
+degradation, same as the library).
 
 ### 3.2 Heavy: never exceeds the cap — with OUR summarization
 
 The heavy checkpoint is produced by **our** summarization, not DSH's:
 
-- `summarize()` is overridden with our **semantic-memory instruction**
-  (identity/environment, hard rules and red lines, project anchors, lessons,
-  current-goal gist) and routed through the conversation's own provider/model.
+- `summarize()` is overridden with the library's **dialogue-memory-compressor
+  instruction**: role + output shape are specified, but *content selection is
+  left to the model* (key decisions, preferences, unfinished action items,
+  lessons — the model decides; ancient redundant material may be omitted).
+  Routed through the conversation's own provider/model.
 - Bounded by `maxTokens` (default 8192) — the cap is **never exceeded, by
   construction**.
 - Incremental for free: the previous checkpoint node is inside the heavy
@@ -139,7 +139,6 @@ happens this step" — the zero-cost path.
     lightWindow: 10
     heavyStart: 50
     heavyWindow: 10
-    lightDistillMode: 'rules'   # or 'llm' (per-message calls)
     lightMaxTokens: 1024
     maxTokens: 8192
 ```
@@ -148,8 +147,8 @@ happens this step" — the zero-cost path.
 
 - **Originals are never deleted** — replacement shadows them; queryable.
 - **The checkpoint node is the heavy summary**, bounded by `maxTokens`.
-- **Light is per-message** (one call per message, plain text) — never batched;
-  optional rules mode reduces LLM calls to zero.
+- **Light is per-message** (one LLM call per message, plain text, concurrent)
+  — never batched; failures keep originals verbatim.
 - Compaction markers (`compaction/start|end`) give the host durable records
   (≈ the library's `onCompress`).
 
@@ -160,7 +159,7 @@ happens this step" — the zero-cost path.
 | `npm run typecheck` against real 0.1.0-rc.6 types | PASS |
 | `zones.spec` — zone boundaries incl. boundary-equality cases | PASS |
 | `smoke.spec` — single-node surface replacement on a real Session | PASS |
-| `pipe.spec` — 60-round seed → heavy fold 60 → 51 nodes, markers present | PASS |
+| `pipe.spec` — threshold/off-window null; 60-round seed → light distilled (20) + raw verbatim (30) + heavy fold 60 → 51; LLM failure → originals preserved | PASS |
 
 Source: `src/index.ts` (435 lines) + `src/zones.ts` (21 lines) — 456 lines
 total, same order as the library itself (<500). Tests: 156 lines.
@@ -175,8 +174,7 @@ total, same order as the library itself (<500). Tests: 156 lines.
    was exercised on a real Session — validate a tool round in the harness.
 3. **Not yet mounted in a real DSH profile** (disable `compaction-basic`,
    load this module, drive a long conversation end-to-end).
-4. Light LLM mode currently loops serially; a bounded-concurrency batch is a
-   trivial follow-up.
+
 
 ## 8. Risks and open questions
 

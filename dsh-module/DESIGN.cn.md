@@ -51,16 +51,16 @@ light 区每条消息由**一次小 LLM 调用**蒸馏（纯文本输出）—�
 教训来自真实数据：一次调用压 200+ 条消息会截断模型输出（静默禁用全部
 Light 压缩）且下标对齐易错。
 
-原型默认 **rules 模式**（零 LLM 成本）：超大工具结果做头尾压缩，其余原样。
-配置切到 `llm` 模式即启用逐条调用。各条调用相互独立，**可以并发**
-（当前原型是串行循环；有界并发是一行改动）。任何失败都保留原文。
+各条调用**相互独立、并发执行**（库语义：`Promise.all` 扫过整个区间）。
+**任何失败都保留原文**——压缩永不阻塞对话（优雅降级，与主库一致）。
 
 ### 3.2 Heavy：永不上限——且用我们的压缩
 
 heavy checkpoint 由**我们**的摘要生成，不是 DSH 的：
 
-- 重写 `summarize()`：我们的**语义记忆指令**（身份/环境、硬规则与红线、
-  项目锚点、教训、当前目标一句话），走对话自己的 provider/model 路由。
+- 重写 `summarize()`：采用主库的**对话记忆压缩器指令**——规定角色与输出
+  形态，但**内容取舍交给模型自己决定**（关键决策、偏好、未完成事项、教训；
+  古早冗余可省略）。走对话自己的 provider/model 路由。
 - `maxTokens`（默认 8192）硬上限——**永不超限，构造保证**。
 - 增量天然成立：上一轮 checkpoint 在 heavy 范围内，会被再次概括
   （摘要的摘要）——与库的递归 Heavy 同一性质。
@@ -118,7 +118,6 @@ if (count % lightWindow !== 0) return null   // 不在窗口边界（防抖）
     lightWindow: 10
     heavyStart: 50
     heavyWindow: 10
-    lightDistillMode: 'rules'   # 或 'llm'（逐条调用）
     lightMaxTokens: 1024
     maxTokens: 8192
 ```
@@ -127,7 +126,7 @@ if (count % lightWindow !== 0) return null   // 不在窗口边界（防抖）
 
 - **原始内容永不删除**——替换只是 shadow，可查询。
 - **checkpoint 节点 = heavy 摘要**，受 `maxTokens` 约束。
-- **Light 逐条**（每消息一次调用、纯文本）——绝不批量；rules 模式可零 LLM 成本。
+- **Light 逐条**（每消息一次 LLM 调用、纯文本、并发）——绝不批量；失败保留原文。
 - `compaction/start|end` 标记 = 宿主的持久记录（≈ 库的 `onCompress`）。
 
 ## 七、原型状态（2026-08-14 已验证）
@@ -137,7 +136,7 @@ if (count % lightWindow !== 0) return null   // 不在窗口边界（防抖）
 | typecheck（真实 0.1.0-rc.6 类型） | 通过 |
 | zones.spec — 分区边界（含边界相等情形） | 通过 |
 | smoke.spec — 真实 Session 上单节点替换 | 通过 |
-| pipe.spec — 60 轮种子 → heavy 折叠 60 → 51 节点、标记齐全 | 通过 |
+| pipe.spec — 阈值/窗口外 null；60 轮 → light 蒸馏 20 + raw 原文 30 + heavy 折叠 60 → 51；LLM 失败 → 原文保留 | 通过 |
 
 源码：`src/index.ts`（435 行）+ `src/zones.ts`（21 行）= **456 行**，
 与主库（<500 行）同量级。测试 156 行。
@@ -150,7 +149,7 @@ if (count % lightWindow !== 0) return null   // 不在窗口边界（防抖）
    需在 harness 里验证工具轮。
 3. **尚未挂载进真实 DSH profile**（禁 `compaction-basic`、加载本模块、
    长会话端到端实测）。
-4. Light 的 llm 模式目前串行；有界并发是简单后续。
+
 
 ## 八、风险与开放问题
 

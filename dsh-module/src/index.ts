@@ -52,40 +52,26 @@ export interface MosaicConfig {
   heavyStart: number
   /** Anti-jitter for the heavy fold (default 10). */
   heavyWindow: number
-  /**
-   * Light distillation mode:
-   * - 'rules': zero-LLM-cost programmatic dehydration (compress oversized
-   *   tool results, keep everything else verbatim).
-   * - 'llm': per-message distillation, one small call per message, plain
-   *   text output, failure keeps the original (never batch — learned from
-   *   the batched-call truncation failure).
-   */
-  lightDistillMode: 'rules' | 'llm'
-  /** Generation cap for one llm-mode distillation call (default 1024). */
+  /** Generation cap for one light distillation call (default 1024). */
   lightMaxTokens: number
   /** Generation cap for the heavy checkpoint (default 8192). */
   maxTokens: number
 }
 
-/** Rules-only dehydrator: zero LLM cost, zero semantic risk. */
-const RULES_TOOL_KEEP_HEAD = 300
-const RULES_TOOL_KEEP_TAIL = 200
-const RULES_TOOL_MAX = 1500
+/** Heavy-zone checkpoint instruction — mirrors the library's Heavy prompt:
+ * role + structure, content selection left to the model. */
+const HEAVY_INSTRUCTION = `You are a dialogue memory compressor. The recent
+rounds of this conversation stay verbatim; your job is to condense only the
+ANCIENT part below into one compact memory node that preserves what must
+survive forgetting.
 
-/** Heavy-zone checkpoint instruction: semantic memory, not event replay. */
-const HEAVY_INSTRUCTION = `You are consolidating the ANCIENT part of a conversation
-into a compact SEMANTIC MEMORY node (the recent rounds stay verbatim; this
-node only holds what must survive forgetting).
-
-Keep ONLY:
-1. Identity and environment facts (who/what/where, access, permissions).
-2. Hard rules and red lines (what must never be done without approval).
-3. Project anchors (repos, paths, credentials locations, git identities).
-4. Lessons that must persist (known failure modes and their fixes).
-5. The current goal / next-step gist, one line each.
-
-Drop: event narratives, tool outputs, numbers that live in code or docs,
-anything recoverable from files or logs. Write terse bullets.`
+## Principles
+1. You decide what is worth keeping — key decisions, preferences, creative
+   directions, unfinished action items, lessons. Ancient, redundant
+   information already covered by later conversation may be omitted.
+2. Use declarative facts, one per line.
+3. Preserve unfinished action items that need follow-up.
+4. Preserve the original language of the input. Keep it terse.`
 
 /** Defaults mirror the library's DEFAULT_CONFIG. */
 const DEFAULTS: Required<MosaicConfig> = {
@@ -93,7 +79,6 @@ const DEFAULTS: Required<MosaicConfig> = {
   lightWindow: 10,
   heavyStart: 50,
   heavyWindow: 10,
-  lightDistillMode: 'rules',
   lightMaxTokens: 1024,
   maxTokens: 8192,
 }
@@ -217,15 +202,19 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
 
   // ───────────────────────────────────────────────────────────────── light
 
-  /** Per-node 1:1 surface replacement over the light zone. */
+  /** Per-node 1:1 surface replacement over the light zone (concurrent like the library). */
   private async lightPass(
     agent: Agent,
     zone: SurfaceEntry[],
     signal: AbortSignal,
   ): Promise<void> {
     const { session } = agent
-    for (const entry of zone) {
-      const distilled = await this.distill(entry.message, agent, signal)
+    // Distill all messages concurrently (library semantics: Promise.all);
+    // each failure independently keeps its original verbatim.
+    const distilledTexts = await Promise.all(zone.map(entry => this.distill(entry.message, agent, signal)))
+    for (let i = 0; i < zone.length; i++) {
+      const entry = zone[i]
+      const distilled = distilledTexts[i]
       if (distilled === null) continue // failure keeps the original verbatim
       const textBlock: TextBlock = { type: 'text', text: distilled }
       const opts = {
@@ -264,38 +253,23 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
 
   /**
    * One message → distilled plain text, or null to keep the original.
-   * llm mode degrades to rules mode on any failure (never truncates).
+   * One small LLM call per message (library semantics); any failure keeps
+   * the original verbatim — compression never blocks the conversation.
    */
   private async distill(
     message: Message,
     agent: Agent,
     signal: AbortSignal,
   ): Promise<string | null> {
-    const text = this.textOf(message)
-    if (this.mosaic.lightDistillMode === 'llm' && message.source.kind !== 'tool') {
-      try {
-        const distilled = await this.distillWithLlm(message, agent, signal)
-        if (distilled.length > 0) return distilled
-      } catch {
-        // fall through to rules mode
-      }
+    try {
+      const distilled = await this.distillWithLlm(message, agent, signal)
+      return distilled.length > 0 ? distilled : null
+    } catch {
+      return null // keep the original verbatim
     }
-    return this.distillRules(message, text)
   }
 
-  /** rules mode: zero LLM cost, zero semantic risk. */
-  private distillRules(message: Message, text: string): string | null {
-    if (message.source.kind === 'tool' && text.length > RULES_TOOL_MAX) {
-      const head = text.slice(0, RULES_TOOL_KEEP_HEAD)
-      const tail = text.slice(-RULES_TOOL_KEEP_TAIL)
-      return head + '\n…[payload distilled; original kept in shadowed log]…\n' + tail
-    }
-    // User/assistant text and short tool results stay verbatim — losing words
-    // costs more than keeping them.
-    return null
-  }
-
-  /** llm mode: one small per-message call, plain-text output. */
+  /** One small per-message call, plain-text output. */
   private async distillWithLlm(
     message: Message,
     agent: Agent,
