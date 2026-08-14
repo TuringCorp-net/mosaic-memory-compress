@@ -156,7 +156,8 @@ The file mode accepts any JSON array of messages in the library's
 ```
 
 See [benchmark/README.md](benchmark/README.md) for the full method, data
-generation, findings and limitations.
+generation, findings, limitations, and the real-LLM spot check
+(`npm run bench:real` — DeepSeek V4 Flash, <$0.01, 5/5 facts retained).
 
 ## Development
 

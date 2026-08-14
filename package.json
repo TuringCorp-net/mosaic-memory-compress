@@ -15,6 +15,7 @@
   "scripts": {
     "test": "npx tsx tests/index.test.ts",
     "bench": "tsx benchmark/simulate.ts",
+    "bench:real": "tsx benchmark/real-llm-check.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
