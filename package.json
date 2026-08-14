@@ -1,7 +1,7 @@
 {
   "name": "mosaic-compress",
   "version": "1.0.0",
-  "description": "Stateless dialogue compression based on natural forgetting curve. Keep LLM conversations bounded without session management.",
+  "description": "Stateless dialogue compression that mimics human memory — forgetting-curve bounded context for LLM conversations. DeepSeek Harness (DSH) plugin backend included.",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -11,7 +11,10 @@
       "default": "./src/index.ts"
     }
   },
-  "files": ["src/", "docs/"],
+  "files": [
+    "src/",
+    "docs/"
+  ],
   "scripts": {
     "test": "npx tsx tests/index.test.ts",
     "bench": "tsx benchmark/simulate.ts",
@@ -20,14 +23,19 @@
   },
   "keywords": [
     "llm",
-    "dialogue",
-    "compression",
+    "context-compression",
     "context-window",
-    "chat",
-    "conversation",
     "memory",
-    "session",
-    "forgetting-curve"
+    "conversation",
+    "dialogue",
+    "forgetting-curve",
+    "agent-memory",
+    "deepseek",
+    "deepseek-harness",
+    "ai-agents",
+    "token-efficiency",
+    "compression",
+    "chatbot"
   ],
   "license": "MIT",
   "devDependencies": {

@@ -2,6 +2,11 @@
 
 **Stateless dialogue compression based on natural forgetting curve.**
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](https://www.typescriptlang.org)
+[![GitHub stars](https://img.shields.io/github/stars/TuringCorp-net/mosaic_compress)](https://github.com/TuringCorp-net/mosaic_compress/stargazers)
+[![npm](https://img.shields.io/npm/v/mosaic-compress)](https://www.npmjs.com/package/mosaic-compress)
+
 LLM conversations grow linearly. MosaicCompress keeps them bounded — automatically, invisibly, and without the user ever knowing what a "Session" is.
 
 ## How It Works
@@ -170,10 +175,21 @@ MosaicCompress is intentionally **stateless and lossy**:
 ## Integration Notes
 
 MosaicCompress is host-agnostic and works wherever a `callLLM` function
-exists. Its primary integration reference is **DeepSeek Harness**, whose
-task-level compaction / output retention / spill complement this library's
-message-level compression (roles and order preserved). See the
-[Roadmap](docs/ROADMAP.md) for upcoming work.
+exists. Its primary integration reference is **DeepSeek Harness (DSH)**
+([deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
+— everything is a plugin), whose task-level compaction / output retention /
+spill complement this library's message-level compression (roles and order
+preserved). A ready-to-use **DSH plugin backend** lives in
+[`dsh-module/`](dsh-module/DESIGN.cn.md) (design docs in EN/中文).
+
+Related:
+
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — the host platform
+- [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) — curated DSH plugin list
+- [awesome-deepseek-harness](https://github.com/0xsline/awesome-deepseek-harness) — DSH ecosystem list
+- [design docs (EN)](docs/design.md) / [设计文档（中文）](docs/design.cn.md) — theory and empirical case study
+
+See the [Roadmap](docs/ROADMAP.md) for upcoming work.
 
 ## Benchmark
 
