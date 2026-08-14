@@ -146,8 +146,13 @@ message-level compression (roles and order preserved). See the
 ## Benchmark
 
 A deterministic simulation (zero LLM cost, reproducible) runs the real
-algorithm with a rule-based pseudo-LLM to verify steady state, the token
-curve, and information retention:
+algorithm with a rule-based pseudo-LLM. Latest sweep (default parameters):
+
+| Rounds | msgs in | msgs out | tokens in | tokens out | ratio | facts kept |
+|---|---:|---:|---:|---:|---:|---:|
+| 100 | 234 | 120 | 9,451 | 4,835 | 48.8% | 100% |
+| 1,000 | 2,310 | 122 | 91,869 | 5,508 | 94.0% | 94% |
+| 5,000 | 11,500 | 120 | 457,484 | 5,709 | 98.8% | 20% |
 
 ```bash
 npm run bench                        # synthetic sweep: 100 / 500 / 1000 / 5000 rounds
@@ -162,6 +167,9 @@ The file mode accepts any JSON array of messages in the library's
  {"role": "user", "content": "..."},
  {"role": "assistant", "content": "..."}]
 ```
+
+See [benchmark/README.md](benchmark/README.md) for the full method, data
+generation, findings and limitations.
 
 ## Development
 
