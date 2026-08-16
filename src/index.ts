@@ -22,6 +22,18 @@ export interface Message {
     function: { name: string; arguments: string };
   }[];
   reasoning_content?: string;
+  /**
+   * Internal marker: message already light-distilled. Incremental semantics —
+   * light only distills messages without this flag, so repeated triggers
+   * never re-distill the same content. Hosts may strip it before persistence.
+   */
+  _distilled?: boolean;
+  /**
+   * Internal marker: message is a heavy-zone summary pair node. Excluded
+   * from round counting so trigger points stay exact (40/50/60/…), matching
+   * true user rounds instead of node positions.
+   */
+  _heavy?: boolean;
 }
 
 export interface MosaicConfig {
@@ -181,7 +193,9 @@ export async function mosaicCompress(
 function findRoundStarts(history: Message[]): number[] {
   const starts: number[] = [];
   for (let i = 0; i < history.length; i++) {
-    if (history[i].role === 'user') starts.push(i);
+    // Heavy summary pairs are memory artifacts, not user rounds — excluding
+    // them keeps the trigger count equal to the true round number.
+    if (history[i].role === 'user' && !history[i]._heavy) starts.push(i);
   }
   return starts;
 }
@@ -212,6 +226,16 @@ async function applyLightCompress(
   return result;
 }
 
+/**
+ * Incremental light: distill only messages NOT already distilled. With a
+ * 10-round window, each trigger rolls exactly 10 fresh rounds into the light
+ * zone; everything else was handled by an earlier trigger. Repeated calls
+ * therefore touch only the new window — no re-distillation, no drift.
+ */
+function findUndistilled(target: Message[]): Message[] {
+  return target.filter(m => !m._distilled);
+}
+
 async function runLightCompressLLM(
   messages: Message[],
   config: MosaicConfig,
@@ -231,7 +255,11 @@ async function runLightCompressLLM(
 4. Output ONLY the compressed text — no quotes, no prefixes, no explanations`;
 
   const threshold = config.lightSkipThreshold ?? 160;
+  // Incremental semantics: messages distilled by an earlier trigger are
+  // passed through untouched (no LLM call, no re-distillation).
+  const pending = findUndistilled(messages);
   const results = await Promise.all(messages.map(async (m) => {
+    if (m._distilled) return m;
     const text = (m.content || '').trim();
     // Skip messages with no meaningful content: empty, placeholder-only, or
     // already-terse. No LLM call, original preserved verbatim.
@@ -245,7 +273,7 @@ async function runLightCompressLLM(
       const c = (content || '').trim();
       if (!c) return m;
       // Keep structural fields (tool_calls / tool_call_id pairing); strip reasoning.
-      const next: Message = { ...m, content: c };
+      const next: Message = { ...m, content: c, _distilled: true };
       delete (next as { reasoning_content?: string }).reasoning_content;
       return next;
     } catch (err) {
@@ -273,6 +301,9 @@ async function applyHeavyCompress(
   if (target.length === 0) return history;
 
   const pair = await runHeavyCompressLLM(target, config);
+  // Summary-pair nodes are memory artifacts, not user rounds — the flag keeps
+  // round counting exact (findRoundStarts skips them).
+  for (const m of pair) m._heavy = true;
   await emitCompressEvent(config, { zone: 'heavy', round, original: target, compressed: pair });
 
   const result = [...history];

@@ -416,3 +416,39 @@ run().catch(err => { console.error(err); (globalThis as any).process?.exit?.(1);
     // heavy folds the oldest round, so distilled markers live in the middle zone
     check('Light zone distilled (long content)', res2.some(m => m.content.includes('[distilled]')));
   }
+
+  // ── 24 ──
+  section('24. Incremental light: repeated triggers never re-distill');
+  {
+    const long = (i: number, tag: string) => 'Round ' + i + ' ' + tag + ': ' + 'substantial content to distill with filler words and repetition that should be removed from this message body '.repeat(4);
+    const mk = (n: number) => {
+      const msgs: Message[] = [sys('S')];
+      for (let i = 1; i <= n; i++) {
+        msgs.push(usr(long(i, 'user')));
+        msgs.push(ast(long(i, 'assistant')));
+      }
+      return msgs;
+    };
+    let lightCalls = 0;
+    const cfg = { ...DEFAULT_CONFIG, lightSkipThreshold: 0,
+      callLLM: async (sp: string, ui: string) => {
+        if (sp.includes('exactly 2 messages')) return JSON.stringify([
+          { role: 'user', content: 'H-U' }, { role: 'assistant', content: 'H-A' }]);
+        lightCalls++;
+        return '[d]';
+      } };
+    // R=40: light distills rounds 1-10 (20 messages)
+    const r40 = await mosaicCompress(mk(40), cfg);
+    check('R=40 distilled exactly 20 messages', lightCalls === 20);
+    // R=50: append rounds 41-50; only rounds 11-20 are fresh to light
+    const r50in = [...r40, ...mk(10).slice(1)];
+    const r50 = await mosaicCompress(r50in, cfg);
+    check('R=50 distilled exactly the 20 fresh messages (incremental)', lightCalls === 40);
+    // R=60: append rounds 51-60; light adds 20 fresh, heavy folds rounds 1-10
+    const r60in = [...r50, ...mk(10).slice(1)];
+    const r60 = await mosaicCompress(r60in, cfg);
+    check('R=60 light incremental (20 fresh)', lightCalls === 60);
+    checkEq('R=60 count: 2 heavy + 40 light + 60 raw + sys = 103', countMsgs(r60), 103);
+    check('R=60 heavy summary flagged', r60[1]._heavy === true);
+    check('R=60 distilled messages flagged', r60.some((m: any) => m._distilled === true));
+  }

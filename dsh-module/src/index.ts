@@ -117,6 +117,14 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
 
   private readonly mosaic: Required<MosaicConfig>
 
+  /**
+   * Surface seqs already light-distilled by an earlier trigger. Incremental
+   * semantics: light never re-distills the same node, matching the library's
+   * _distilled marker. In-memory only — after a host restart the next trigger
+   * re-distills once (correct, just one extra pass).
+   */
+  private readonly distilledSeqs = new Set<number>()
+
   constructor(ctx: Context, config: Partial<MosaicConfig> = {}) {
     const mosaic: Required<MosaicConfig> = { ...DEFAULTS, ...config }
     if (mosaic.lightStart < 0 || mosaic.lightWindow <= 0
@@ -216,11 +224,13 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
     signal: AbortSignal,
   ): Promise<void> {
     const { session } = agent
-    // Distill all messages concurrently (library semantics: Promise.all);
+    // Incremental: nodes distilled by an earlier trigger are skipped.
+    const fresh = zone.filter(entry => !this.distilledSeqs.has(entry.seq))
+    // Distill all fresh messages concurrently (library semantics: Promise.all);
     // each failure independently keeps its original verbatim.
-    const distilledTexts = await Promise.all(zone.map(entry => this.distill(entry.message, agent, signal)))
-    for (let i = 0; i < zone.length; i++) {
-      const entry = zone[i]
+    const distilledTexts = await Promise.all(fresh.map(entry => this.distill(entry.message, agent, signal)))
+    for (let i = 0; i < fresh.length; i++) {
+      const entry = fresh[i]
       const distilled = distilledTexts[i]
       if (distilled === null) continue // failure keeps the original verbatim
       const textBlock: TextBlock = { type: 'text', text: distilled }
@@ -230,10 +240,11 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
       }
       const data = entry.event.data as Record<string, unknown>
       const msg = entry.message
+      let replacement
       if (msg.role === 'assistant') {
         // Keep tool-call blocks (pairing) intact; distill only the text.
         const blocks = [...msg.content.filter(b => b.type !== 'text'), textBlock]
-        session.append('assistant/message', {
+        replacement = session.append('assistant/message', {
           turn: data.turn as number,
           step: data.step as number,
           ...data,
@@ -243,18 +254,19 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
         // Tool result: replace the payload blocks inside the tool-result block.
         const block = msg.content.find(b => b.type === 'tool-result')
         if (block === undefined || block.type !== 'tool-result') continue
-        session.append('tool/result', {
+        replacement = session.append('tool/result', {
           turn: data.turn as number,
           step: data.step as number,
           ...data,
           message: { ...msg, content: [{ ...block, content: [textBlock] }] } as import('@deepseek-ai/dsh-llm').ToolResultMessage,
         }, opts)
       } else {
-        session.append('user/message', {
+        replacement = session.append('user/message', {
           ...msg,
           content: [textBlock],
         } as import('@deepseek-ai/dsh-llm').UserMessage, opts)
       }
+      this.distilledSeqs.add(replacement.seq)
     }
   }
 
