@@ -3,6 +3,7 @@
 > MosaicCompress 以纯插件后端的形式，把自然遗忘曲线压缩带进 DeepSeek Harness
 > (DSH)——**对 DSH 源码零改动**。
 > English version: DESIGN.md
+> 集成踩坑实录（真实挂载验证经验）：INTEGRATION-NOTES.md
 
 ## 一、概述
 

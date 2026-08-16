@@ -148,6 +148,8 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
     }
     super(ctx, { auto: true })
     this.mosaic = mosaic
+    console.log('[mosaic-compact] engine constructed (lightStart=' + mosaic.lightStart
+      + ', heavyStart=' + mosaic.heavyStart + ')')
   }
 
   // ─────────────────────────────────────────────────────────────── trigger
@@ -440,6 +442,7 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
 
 /** Cordis plugin entry. */
 export function apply(ctx: Context, config: Partial<MosaicConfig> = {}): void {
+  console.log('[mosaic-compact] apply() called')
   ctx.plugin(MosaicCompactionEngine, config)
 }
 
