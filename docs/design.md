@@ -268,3 +268,23 @@ two ways:
 ## 10. License
 
 MIT
+
+### 8.4 Future: progressive forgetting tiers (theory, not implemented)
+
+Structural truncation makes the light pass **zero-cost**, so the two-zone
+simplification is no longer forced by LLM-call economics — it is a running
+choice. A finer position-is-age ladder is available whenever needed, e.g.:
+
+- rounds 20–30: keep first/last 200 lines of structural payloads
+- rounds 30–40: keep first/last 100 lines
+- rounds 40–50: keep first/last 30 lines
+
+Each tier forgets more of the structured payload (reasoning, arguments,
+results, injections) — content the model's reasoning progressively stops
+using. User/assistant **text is never compressed** in any tier, so the
+conversation's core meaning always survives; the Heavy zone then folds each
+ancient region into a distilled-forever kernel, keeping the conversation
+endlessly continuable.
+
+V1 ships the two-zone scheme (light + heavy) and observes real-world effect
+before any finer tiering.
