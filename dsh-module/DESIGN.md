@@ -47,14 +47,21 @@ in `src/zones.ts` (`zoneBoundaries(userCount, lightStart, heavyStart)`).
 
 ## 3. Mechanisms
 
-### 3.1 Light: per-message LLM distillation
+### 3.1 Light: pure structural truncation
 
-Each light-zone message is distilled by **one small LLM call** (plain-text
-output) — never one big batched call. Batching many messages into one call
-truncates model output and makes index alignment error-prone.
+Since 2026-08-16 light is **structural truncation with zero LLM calls**,
+driven by real-surface token measurements (reasoning 33% + tool-call
+arguments 33% + tool results 24% vs. ~5% text; truncation nets ~46% surface
+savings vs 5.6% from 254 LLM calls):
 
-Calls are independent and run **concurrently**. Any failure keeps the
-original message verbatim — compression never blocks the conversation.
+- reasoning blocks: head+tail 30 chars (field kept — DeepSeek replays it)
+- tool-call arguments: JSON shell preserved, string fields truncated to 120
+- tool-result blocks: inner text head 300 + tail 200
+- plugin injections: truncated to 200
+- user/assistant text: untouched (stays fresh for the Heavy fold)
+
+Synchronous, deterministic, never fails; shadow-price (compaction/prune)
+reporting unchanged.
 
 ### 3.2 Heavy: bounded checkpoint, our summarization
 

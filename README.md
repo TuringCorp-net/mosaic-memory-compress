@@ -15,7 +15,7 @@ LLM conversations grow linearly. MosaicCompress keeps them bounded — automatic
 Your message array (R rounds, oldest → newest):
 
 Round 1 ────→ Round (R-50)   │ Heavy zone → ALL → 2 msgs
-Round (R-49) → Round (R-30)  │ Light zone → distill each, count unchanged
+Round (R-49) → Round (R-30)  │ Light zone → structural truncation, count unchanged
 Round (R-29) ──→ Round R     │ Raw zone  → keep as-is
 ```
 

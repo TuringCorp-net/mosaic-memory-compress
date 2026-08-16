@@ -127,3 +127,21 @@ agent——钩子解构 { agent, signal } 成立。官方机制，无需处理�
 `[mosaic] pre-step R=NN trigger=pressure no-op (Xms)` / TRIGGERED 变体
 （lightCalls/lightTokens/heavyFolded/耗时）。重启后 journal 是唯一可靠的
 验证通道（lsof 不可靠——模块加载后文件句柄关闭）。
+
+## 12. Light 重构：LLM 蒸馏 → 纯结构化截断（2026-08-16）
+
+**数据驱动决策**：真实 40 轮 surface 的 token 构成——reasoning 33% +
+tool-call arguments 33% + tool-result 24% + 注入 4% + **文本仅 5%**。
+LLM 蒸馏文本是"90% 成本打 10% 的靶"：254 次调用/12s/38 万 token 只换
+5.6% 净省。
+
+**新方案（实测对比）**：结构化截断（reasoning 头尾 30、arguments JSON 壳
+120、结果头 300 尾 200、注入 200、文本不动）→ 46.1% 净省、零 LLM、毫秒级。
+
+**API 安全性全部实测**（DeepSeek 官方接口）：
+- reasoning_content 截断/删除 → 200 OK，回答正确（finish_reason=stop）
+- arguments 纯文本/JSON 壳截断 → 200 OK（只校验结构不校验内容）
+- tool_call_id 配对保留 → 无 400
+
+**对 DSH 的启示**：surface 的大头是结构化内容（reasoning/arguments/result），
+不是文本——任何上下文压缩都应先处理结构化负载。

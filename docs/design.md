@@ -48,20 +48,20 @@ Round (R-lightStart+1) ──→ Round R      │ Raw zone  → keep as-is
 
 ### Light Compress
 
-Distill each message independently — roles, order, and count are preserved.
+Per-message **structural truncation** — zero LLM calls (since 2026-08-16,
+data-driven: real-surface token composition is reasoning 33% + tool-call
+arguments 33% + tool results 24% vs. ~5% text; structural truncation of the
+big structured payloads yields ~46% net surface savings vs 5.6% from 254
+LLM calls):
 
-```
-Before (2 messages):
-  user:      "I wanted to discuss the worldbuilding setup, I'm thinking the magic system
-              could be something like..." (200+ words)
-  assistant: "I understand your ideas. Based on your description, the magic system should
-              adopt soft magic principles..." (800+ words)
+- reasoning_content: head+tail 30 chars (field preserved; DeepSeek replays
+  it on tool-call turns — truncation API-verified)
+- tool_calls arguments: JSON shell preserved, string fields truncated to 120
+- tool results: text head 300 + tail 200
+- user/assistant text: untouched — stays fresh for the Heavy fold
 
-After (2 messages, same roles, same order):
-  user:      "Discussing magic system design, leaning toward soft magic" (~15 words)
-  assistant: "Confirmed soft magic: rules vague but costs clear. Advised against hard
-              magic-science approach" (~20 words)
-```
+Incremental: distilled messages carry a `_distilled` marker; re-triggers
+skip them.
 
 ### Heavy Compress
 
