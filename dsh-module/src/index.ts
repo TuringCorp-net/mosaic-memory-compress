@@ -204,7 +204,8 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
     const offWindow = userCount % this.mosaic.lightWindow !== 0
     const belowThreshold = userCount < this.mosaic.lightStart
     if (trigger !== 'context-overflow' && (belowThreshold || offWindow)) {
-      console.log('[mosaic] pre-step R=' + userCount + ' trigger=' + trigger
+      console.log('[mosaic] pre-step sid=' + agent.session.id.slice(0, 8)
+        + ' R=' + userCount + ' trigger=' + trigger
         + ' no-op (' + (Date.now() - t0) + 'ms)')
       return null
     }
@@ -222,14 +223,16 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
     // checkpoint is inside the range and gets re-summarized).
     if (!zones.heavyEmpty && userCount >= this.mosaic.heavyStart) {
       const result = await this.compactRegion(zones.heavy.start, zones.heavy.end, agent, signal)
-      console.log('[mosaic] pre-step R=' + userCount + ' trigger=' + trigger
+      console.log('[mosaic] pre-step sid=' + agent.session.id.slice(0, 8)
+        + ' R=' + userCount + ' trigger=' + trigger
         + ' TRIGGERED lightCalls=' + this.lightStats.calls
         + ' lightTokens=' + this.lightStats.tokens
         + ' heavyFolded=' + result.shadowedSeqs.length + ' nodes'
         + ' (' + (Date.now() - t0) + 'ms)')
       return result
     }
-    console.log('[mosaic] pre-step R=' + userCount + ' trigger=' + trigger
+    console.log('[mosaic] pre-step sid=' + agent.session.id.slice(0, 8)
+      + ' R=' + userCount + ' trigger=' + trigger
       + ' TRIGGERED lightCalls=' + this.lightStats.calls
       + ' lightTokens=' + this.lightStats.tokens
       + ' heavy=none (below heavyStart) (' + (Date.now() - t0) + 'ms)')
