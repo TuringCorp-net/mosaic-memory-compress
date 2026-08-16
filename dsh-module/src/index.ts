@@ -144,6 +144,13 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
   private lightStats = { calls: 0, tokens: 0 }
 
   /**
+   * Window-level dedup: R stays on a window boundary across the steps of one
+   * turn (pre-step runs per step), so without this guard the same round
+   * would re-trigger full distillation for every step. One trigger per round.
+   */
+  private lastTriggeredRound = -1
+
+  /**
    * Incremental round counters (per session), maintained via session/event.
    * no-op pre-steps read this in O(1) instead of rescanning the whole log.
    * Correctness is guaranteed by three rules:
@@ -203,12 +210,15 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
     const userCount = this.userRounds(agent.session)
     const offWindow = userCount % this.mosaic.lightWindow !== 0
     const belowThreshold = userCount < this.mosaic.lightStart
-    if (trigger !== 'context-overflow' && (belowThreshold || offWindow)) {
+    const alreadyTriggered = userCount === this.lastTriggeredRound
+    if (trigger !== 'context-overflow' && (belowThreshold || offWindow || alreadyTriggered)) {
       console.log('[mosaic] pre-step sid=' + agent.session.id.slice(0, 8)
         + ' R=' + userCount + ' trigger=' + trigger
+        + (alreadyTriggered ? ' dedup' : '')
         + ' no-op (' + (Date.now() - t0) + 'ms)')
       return null
     }
+    this.lastTriggeredRound = userCount
 
     const zones = this.computeZones(agent)
 
