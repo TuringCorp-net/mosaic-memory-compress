@@ -84,10 +84,16 @@ session.append('user/message', 新消息, {
 ### 3.4 防抖窗口：计数器决定
 
 ```ts
-count = 表面上的真人用户轮数
+count = 表面上的真人用户轮数   // 增量维护，O(1) 读取
 if (count < lightStart) return null          // 未达阈值
 if (count % lightWindow !== 0) return null   // 不在窗口边界（防抖）
 ```
+
+计数由会话事件流**增量维护**（监听 session/event，append-only）：
+真实用户消息（source.kind==='user'）进入即 +1；light 的 1:1 替换不改计数；
+任何范围折叠（heavy checkpoint 等）标记失效、下次使用时全量对账。
+新会话/重启后首次使用时全量初始化一次。因此 no-op 路径恒定 O(1)，
+与对话长度无关，且计数永远与 surface 真实状态一致。
 
 `lightWindow`（默认 10）是防抖窗口：只在窗口边界压缩。`context-overflow`
 可绕过窗口强制触发。返回 `null` = 本次什么都不做（零成本路径）。

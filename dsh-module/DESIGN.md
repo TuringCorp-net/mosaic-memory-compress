@@ -94,10 +94,18 @@ session.append('user/message', newMessage, {
 ### 3.4 Anti-jitter: the counter decides
 
 ```ts
-count = genuine user rounds on the surface
+count = genuine user rounds on the surface   // incrementally maintained, O(1) read
 if (count < lightStart) return null                    // below threshold
 if (count % lightWindow !== 0) return null             // off-window (jitter guard)
 ```
+
+The count is maintained **incrementally** from the session event stream
+(session/event, append-only): a genuine user message (source.kind==='user')
+increments it; the light pass's 1:1 replacements never change it; any range
+fold (heavy checkpoint, third-party compaction) invalidates it and the next
+use recomputes. New sessions and restarts initialize with one full scan.
+The no-op path is therefore O(1) forever, independent of conversation
+length, and the count always matches the live surface.
 
 `lightWindow` (default 10) is the anti-jitter window: compression fires only
 at window boundaries. `context-overflow` bypasses the window check and forces

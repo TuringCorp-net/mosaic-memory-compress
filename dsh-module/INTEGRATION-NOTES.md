@@ -89,3 +89,41 @@ agent——钩子解构 { agent, signal } 成立。官方机制，无需处理�
   的 cordis 靠全局 Symbol 品牌跨拷贝兼容
 - compaction-basic 在 web-app bundle 中已被官方禁用（host 层）——
   preset 层是否挂载官方后端需按版本核对
+
+## 9. O(n²) 事件查找：pre-step 实测 17.7 秒（已修复）
+
+**现象**：挂载后每次发消息前 GUI 无反应数秒；journal 显示
+`[mosaic] pre-step R=25 no-op (17730ms)`。
+
+**根因**：surfaceNodes() 对每个 surface 节点用 events.find(seq) 线性查找——
+80 轮对话产生 3.8 万条事件 × 675 个表面节点 = 2565 万次比较/每次 pre-step。
+
+**解法**：Map 索引（O(n) 建索引 + O(1) 查找）→ 17730ms → 132ms。
+
+**教训**：真实会话的事件量是对话轮数的 ~500 倍（tool 调用、chunk、reasoning
+都算事件）——任何按 seq 的查找都必须索引，禁止线性 find。
+
+## 10. 增量轮计数：O(1) no-op pre-step（2026-08-16 设计）
+
+**问题**：即使 Map 索引，每次 pre-step 全量扫描仍是 O(n)，会话增长会退化
+（10 万事件 ≈ 400ms，100 万 ≈ 秒级）。
+
+**设计**（正确性由三条规则封闭）：
+- **增量维护**：监听 `session/event`（append-only 流）——真实用户消息
+  （source.kind==='user'）append 时计数 +1；
+- **1:1 替换不失效**：light 蒸馏（start===end 替换）保留 user source，
+  轮数不变，不标脏；
+- **范围折叠标脏**：任何 start!==end 的替换（heavy 折叠、官方 checkpoint、
+  第三方压缩）→ dirty → 下次 pre-step 全量对账。
+- **懒初始化**：新会话/重启后首次 pre-step 全量扫描一次；触发路径
+  （窗口边界）本来就全量算 zones，顺带校正。
+
+**实测**：no-op 124ms（初始化）→ **0ms**（增量）；journal R 与 surface
+全量计数逐轮对账一致。
+
+## 11. pre-step 诊断日志（验证方法论）
+
+模块在 compactIfNeeded 记录一行 journal：
+`[mosaic] pre-step R=NN trigger=pressure no-op (Xms)` / TRIGGERED 变体
+（lightCalls/lightTokens/heavyFolded/耗时）。重启后 journal 是唯一可靠的
+验证通道（lsof 不可靠——模块加载后文件句柄关闭）。
