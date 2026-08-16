@@ -63,9 +63,9 @@ export interface MosaicConfig {
 /** Light structural-truncation limits (mirror the library's light pass). */
 const LIGHT_REASON_KEEP = 30
 const LIGHT_ARG_FIELD_MAX = 120
-const LIGHT_RESULT_HEAD = 300
-const LIGHT_RESULT_TAIL = 200
-const LIGHT_INJECT_MAX = 200
+const LIGHT_RESULT_HEAD = 30
+const LIGHT_RESULT_TAIL = 30
+const LIGHT_INJECT_MAX = 30
 
 /** Truncate one tool-call arguments JSON, preserving the JSON shell. */
 function truncateArguments(raw: string): string {

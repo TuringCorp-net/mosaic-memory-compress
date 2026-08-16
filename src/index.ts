@@ -237,15 +237,15 @@ async function applyLightCompress(
  * - tool_calls[*].function.arguments: JSON shell preserved, every string
  *   field truncated to 120 chars (API-verified safe; only structure is
  *   validated)
- * - tool messages (results): text head 300 + tail 200 (structure untouched)
+ * - tool messages (results): text head 30 + tail 30 (structure untouched)
  * - user/assistant text: UNTOUCHED — stays fresh for the Heavy fold
  *
  * Incremental semantics unchanged: _distilled marker, re-triggers skip.
  */
 const LIGHT_REASON_KEEP = 30
 const LIGHT_ARG_FIELD_MAX = 120
-const LIGHT_RESULT_HEAD = 300
-const LIGHT_RESULT_TAIL = 200
+const LIGHT_RESULT_HEAD = 30
+const LIGHT_RESULT_TAIL = 30
 
 /** Truncate one tool-call arguments JSON, preserving the JSON shell. */
 function truncateArguments(raw: string): string {
@@ -274,7 +274,7 @@ function truncateReasoning(text: string): string {
   return text.slice(0, LIGHT_REASON_KEEP) + '…' + text.slice(-LIGHT_REASON_KEEP)
 }
 
-/** Truncate a tool-result text head+tail. */
+/** Truncate a tool-result text head+tail (30/30). */
 function truncateToolResult(text: string): string {
   if (text.length <= LIGHT_RESULT_HEAD + LIGHT_RESULT_TAIL) return text
   return text.slice(0, LIGHT_RESULT_HEAD) + '\n…[truncated]…\n' + text.slice(-LIGHT_RESULT_TAIL)
