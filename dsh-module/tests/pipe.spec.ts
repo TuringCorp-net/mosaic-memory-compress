@@ -71,7 +71,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
   assert.equal(result, null)
 }
 
-// 3) 60 rounds: light distillation + heavy fold, raw untouched
+// 3) 60 rounds: structural light (text verbatim) + heavy fold, raw untouched
 {
   const session = seedSession(60)
   const engine = new MosaicCompactionEngine(mockCtx() as never, {})
@@ -82,22 +82,22 @@ function mockCtx(opts?: { failLight?: boolean }) {
   assert.equal(nodes.length, 51) // 60 - 10 + 1
 
   const texts = nodes.map(seq => messageOf(session, seq))
-  // light zone (20 messages, rounds 10..29) distilled
-  const distilled = texts.filter(t => t.startsWith('DISTILLED: user round 1') || t.startsWith('DISTILLED: user round 2'))
-  assert.equal(distilled.length, 20)
+  // light zone (20 messages, rounds 10..29): user TEXT stays verbatim
+  // (structural light never rewrites text)
+  const lightVerbatim = texts.filter(t => t.startsWith('user round 1') || t.startsWith('user round 2'))
+  assert.equal(lightVerbatim.length, 20)
   // raw zone (30 messages, rounds 30..59) verbatim
   const raw = texts.filter(t => t.startsWith('user round 3') || t.startsWith('user round 4') || t.startsWith('user round 5'))
   assert.equal(raw.length, 30)
-  // heavy checkpoint present (substring check — the checkpoint node carries
-  // the official preamble + <compacted-summary> framing around our summary)
+  // heavy checkpoint present (official preamble + <compacted-summary> framing)
   assert.ok(texts.some(t => t.includes('## HEAVY CHECKPOINT')))
   // markers present
   const types = session.events.map(e => e.type)
   assert.ok(types.includes('compaction/start') && types.includes('compaction/summary') && types.includes('compaction/end'))
-  console.log('3) 60 rounds: light distilled (' + distilled.length + '), raw verbatim (' + raw.length + '), heavy fold 60→51 PASS')
+  console.log('3) 60 rounds: light text verbatim (' + lightVerbatim.length + '), raw (' + raw.length + '), heavy fold 60→51 PASS')
 }
 
-// 4) LLM failure → light zone keeps originals verbatim, compaction still completes
+// 4) structural light is pure (no LLM involvement): heavy LLM failure still completes
 {
   const session = seedSession(60)
   const engine = new MosaicCompactionEngine(mockCtx({ failLight: true }) as never, {})
@@ -105,10 +105,9 @@ function mockCtx(opts?: { failLight?: boolean }) {
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.notEqual(result, null)
   const texts = session.surface.nodes.map(seq => messageOf(session, seq))
-  // nothing distilled (all light calls failed) — originals verbatim
-  assert.equal(texts.filter(t => t.startsWith('DISTILLED')).length, 0)
+  // text untouched everywhere (structural light)
   assert.ok(texts.some(t => t.startsWith('user round 1')))
-  console.log('4) LLM failure: originals preserved, heavy still completes PASS')
+  console.log('4) structural light: text untouched, heavy completes PASS')
 }
 
 console.log('pipe.spec: all scenarios passed')

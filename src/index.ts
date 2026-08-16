@@ -46,15 +46,6 @@ export interface MosaicConfig {
   /** Anti-jitter window for Heavy Compress. Default 10 */
   heavyWindow: number;
 
-  /**
-   * Light distillation skips messages whose content is at or below this
-   * character length (or empty / placeholder-only). Such messages have no
-   * filler worth removing, and calling the LLM on them wastes tokens and
-   * risks meaningless replies. Also acts as an implicit "already distilled"
-   * marker: distilled messages get shorter, so repeated triggers stop
-   * re-calling the LLM on them. Default 160.
-   */
-  lightSkipThreshold?: number;
 
   /**
    * LLM call function. Receives (systemPrompt, userInput) and returns the
@@ -69,7 +60,12 @@ export interface MosaicConfig {
    *     return res.choices[0].message.content ?? '';
    *   }
    */
-  callLLM: (systemPrompt: string, userInput: string) => Promise<string>;
+  /**
+   * LLM call function used by the HEAVY zone only (light is structural
+   * truncation). Required when heavyStart is reachable; light-only usage can
+   * omit it.
+   */
+  callLLM?: (systemPrompt: string, userInput: string) => Promise<string>;
 
   /**
    * Optional hook fired after each compression. Receives the original raw
@@ -227,61 +223,88 @@ async function applyLightCompress(
 }
 
 /**
- * Incremental light: distill only messages NOT already distilled. With a
- * 10-round window, each trigger rolls exactly 10 fresh rounds into the light
- * zone; everything else was handled by an earlier trigger. Repeated calls
- * therefore touch only the new window — no re-distillation, no drift.
+ * Light compress — PURE STRUCTURAL TRUNCATION, zero LLM calls.
+ *
+ * Data-driven redesign (2026-08-16): token composition of a real 40-round
+ * surface showed reasoning 33% + tool-call arguments 33% + tool results 24%
+ * vs. text only ~5%. LLM distillation of text was 90% waste (254 calls /
+ * 12s / 380K tokens for 5.6% net savings). Structural truncation of the
+ * big structured payloads gets 46% net savings at zero cost:
+ *
+ * - reasoning_content: head+tail 30 chars each (API-verified safe; DeepSeek
+ *   replays reasoning_content on tool-call turns, truncated content is
+ *   accepted and answered correctly)
+ * - tool_calls[*].function.arguments: JSON shell preserved, every string
+ *   field truncated to 120 chars (API-verified safe; only structure is
+ *   validated)
+ * - tool messages (results): text head 300 + tail 200 (structure untouched)
+ * - user/assistant text: UNTOUCHED — stays fresh for the Heavy fold
+ *
+ * Incremental semantics unchanged: _distilled marker, re-triggers skip.
  */
-function findUndistilled(target: Message[]): Message[] {
-  return target.filter(m => !m._distilled);
+const LIGHT_REASON_KEEP = 30
+const LIGHT_ARG_FIELD_MAX = 120
+const LIGHT_RESULT_HEAD = 300
+const LIGHT_RESULT_TAIL = 200
+
+/** Truncate one tool-call arguments JSON, preserving the JSON shell. */
+function truncateArguments(raw: string): string {
+  try {
+    const walk = (v: unknown): unknown => {
+      if (typeof v === 'string') {
+        return v.length > LIGHT_ARG_FIELD_MAX ? v.slice(0, LIGHT_ARG_FIELD_MAX) + '…[truncated]' : v
+      }
+      if (Array.isArray(v)) return v.slice(0, 3).map(walk)
+      if (v !== null && typeof v === 'object') {
+        const out: Record<string, unknown> = {}
+        for (const k of Object.keys(v as Record<string, unknown>)) out[k] = walk((v as Record<string, unknown>)[k])
+        return out
+      }
+      return v
+    }
+    return JSON.stringify(walk(JSON.parse(raw)))
+  } catch {
+    return raw.length > LIGHT_ARG_FIELD_MAX ? raw.slice(0, LIGHT_ARG_FIELD_MAX) + '…[truncated]' : raw
+  }
+}
+
+/** Truncate reasoning head+tail (field preserved — DeepSeek replays it). */
+function truncateReasoning(text: string): string {
+  if (text.length <= LIGHT_REASON_KEEP * 2 + 1) return text
+  return text.slice(0, LIGHT_REASON_KEEP) + '…' + text.slice(-LIGHT_REASON_KEEP)
+}
+
+/** Truncate a tool-result text head+tail. */
+function truncateToolResult(text: string): string {
+  if (text.length <= LIGHT_RESULT_HEAD + LIGHT_RESULT_TAIL) return text
+  return text.slice(0, LIGHT_RESULT_HEAD) + '\n…[truncated]…\n' + text.slice(-LIGHT_RESULT_TAIL)
 }
 
 async function runLightCompressLLM(
   messages: Message[],
-  config: MosaicConfig,
+  _config: MosaicConfig,
 ): Promise<Message[]> {
-  // Per-message distillation: ONE LLM call per message, plain-text output.
-  // Batching many messages into one call is deliberately avoided:
-  //  - a large batch blows the model's output budget (truncated JSON → total
-  //    fallback, silently losing all compression), and
-  //  - cross-message index alignment is error-prone for the model.
-  // One call per message keeps input small, output tiny and structure-free.
-  const systemPrompt = `You are a dialogue compressor. Compress the message below to its essential core — remove filler words, repetition, and small talk. Preserve the original language of the input.
-
-## Rules
-1. Keep: the intent, decisions, preferences, feedback, conclusions, commitments, key suggestions
-2. Remove: filler words, repeated confirmations, small talk, completed tool-call processes
-3. Tool results (code, file contents, web content): summarize to the essential conclusion in 1-3 lines
-4. Output ONLY the compressed text — no quotes, no prefixes, no explanations`;
-
-  const threshold = config.lightSkipThreshold ?? 160;
-  // Incremental semantics: messages distilled by an earlier trigger are
-  // passed through untouched (no LLM call, no re-distillation).
-  const pending = findUndistilled(messages);
-  const results = await Promise.all(messages.map(async (m) => {
-    if (m._distilled) return m;
-    const text = (m.content || '').trim();
-    // Skip messages with no meaningful content: empty, placeholder-only, or
-    // already-terse. No LLM call, original preserved verbatim.
-    if (text.length <= threshold) return m;
-    const roleLabel = m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : m.role;
-    try {
-      const content = await config.callLLM(
-        systemPrompt,
-        `[Role] ${roleLabel}\n\n${text}`,
-      );
-      const c = (content || '').trim();
-      if (!c) return m;
-      // Keep structural fields (tool_calls / tool_call_id pairing); strip reasoning.
-      const next: Message = { ...m, content: c, _distilled: true };
-      delete (next as { reasoning_content?: string }).reasoning_content;
-      return next;
-    } catch (err) {
-      console.error('[mosaic_compress] Light Compress LLM call failed:', (err as Error).message);
-      return m;
+  return messages.map((m) => {
+    if (m._distilled) return m
+    const next: Message = { ...m }
+    if (m.role === 'tool') {
+      const text = (m.content || '').trim()
+      if (text.length > LIGHT_RESULT_HEAD + LIGHT_RESULT_TAIL) next.content = truncateToolResult(text)
+    } else if (m.role === 'assistant') {
+      if (m.reasoning_content && m.reasoning_content.length > LIGHT_REASON_KEEP * 2 + 1) {
+        next.reasoning_content = truncateReasoning(m.reasoning_content)
+      }
+      if (m.tool_calls && m.tool_calls.length > 0) {
+        next.tool_calls = m.tool_calls.map(tc => ({
+          ...tc,
+          function: { ...tc.function, arguments: truncateArguments(tc.function.arguments) },
+        }))
+      }
     }
-  }));
-  return results;
+    // user text (and already-terse messages) pass through untouched
+    next._distilled = true
+    return next
+  })
 }
 
 // ============================================================
@@ -330,6 +353,9 @@ async function runHeavyCompressLLM(
     return `[${i}] ${roleLabel}: ${(m.content || '').substring(0, 200)}`;
   }).join('\n\n');
 
+  if (!config.callLLM) {
+    throw new Error('[mosaic_compress] heavy compression requires callLLM');
+  }
   const systemPrompt = `You are a dialogue compressor. Compress the conversation below into exactly 2 messages (a summary pair). Preserve the original language of the input.
 
 ## Principles

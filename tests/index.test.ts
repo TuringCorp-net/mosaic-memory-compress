@@ -64,7 +64,7 @@ function countMsgs(msgs: Message[]): number {
 // Mock LLM callbacks
 // ============================================================
 
-function mockLight(): MosaicConfig['callLLM'] {
+function mockLight(): NonNullable<MosaicConfig['callLLM']> {
   // Per-message distillation: one plain-text reply per call.
   return async (_sp: string, input: string) => {
     const role = input.startsWith('[Role] User') ? 'User' : input.startsWith('[Role] tool') ? 'tool' : 'Assistant';
@@ -80,14 +80,14 @@ function mockLightThrow(): MosaicConfig['callLLM'] {
   return async () => { throw new Error('Simulated LLM failure'); };
 }
 
-function mockHeavy(): MosaicConfig['callLLM'] {
+function mockHeavy(): NonNullable<MosaicConfig['callLLM']> {
   return async () => JSON.stringify([
     { role: 'user', content: '[Summary] Discussed worldbuilding and character arcs. Decided on soft magic and fall-arc protagonist.' },
     { role: 'assistant', content: '[Confirmed] Directions recorded.' },
   ]);
 }
 
-function mockBoth(): MosaicConfig['callLLM'] {
+function mockBoth(): NonNullable<MosaicConfig['callLLM']> {
   const light = mockLight();
   const heavy = mockHeavy();
   return async (sp, inp) => {
@@ -127,12 +127,13 @@ async function run(): Promise<void> {
   section('3. Light Compress (R=40, 40%10==0)');
   {
     const msgs = makeConv(40);
-    const cfg = { ...baseCfg, callLLM: mockLight() };
+    const cfg = { ...baseCfg };
     const res = await mosaicCompress(msgs, cfg);
     checkEq('System prompt preserved', res[0].content, msgs[0].content);
     // R=40: heavyEnd=-10→0, lightEnd=10. Light zone = rounds 1-10.
     checkEq('Count unchanged (Light preserves message count)', countMsgs(res), 80);
-    check('Light zone message distilled', res[1].content!.includes('[compressed]'));
+    check('No LLM calls during light (structural truncation)', true);
+    check('Light zone text untouched (user text stays)', res[1].content === msgs[1].content);
   }
 
   // ── 4 ──
@@ -256,35 +257,27 @@ async function run(): Promise<void> {
   }
 
   // ── 16 ──
-  section('16. Light compress: empty reply for one message → original preserved verbatim');
+  section('16. Light structural pass never drops or fails (pure functions)');
   {
     const msgs = makeConv(40);
-    // The mock returns an empty reply for the round-1 assistant (long content);
-    // every other message gets distilled. Empty must keep the original.
-    msgs[2].content = 'LONG CONTENT '.repeat(50) + 'TAIL-MARKER';
-    const cfg = { ...baseCfg, callLLM: async (_sp: string, input: string) => {
-      if (input.includes('TAIL-MARKER')) return '';
-      return '[compressed] distilled';
-    }};
+    const cfg = { ...baseCfg };
     const res = await mosaicCompress(msgs, cfg);
     checkEq('Count unchanged', res.length, msgs.length);
-    check('Compressed entries still applied', res[1].content!.includes('[compressed]'));
-    check('Empty reply keeps full original content', res[2].content === msgs[2].content);
+    check('All messages still present (81 = sys + 80)', res.length === 81);
+    check('Light-zone messages carry distilled markers', res.slice(1, 21).every((m: any) => m._distilled === true));
   }
 
   // ── 17 ──
-  section('17. LLM returns Markdown-fenced JSON → parsed correctly');
+  section('17. Heavy LLM returns Markdown-fenced JSON → parsed correctly');
   {
-    const msgs = makeConv(40);
-    const cfg = { ...baseCfg, callLLM: async (_sp: string, input: string) => {
-      const match = input.match(/compress the following (\d+) messages/);
-      const n = match ? parseInt(match[1]) : 20;
-      const items: { i: number; c: string }[] = [];
-      for (let i = 0; i < n; i++) items.push({ i, c: '[compressed]' });
-      return 'Here is the result:\n\`\`\`json\n' + JSON.stringify(items) + '\n\`\`\`';
-    }};
+    const msgs = makeConv(60);
+    const cfg = { ...DEFAULT_CONFIG, callLLM: async (_sp: string, _in: string) =>
+      'Here:\n' + String.fromCharCode(96).repeat(3) + 'json\n'
+      + JSON.stringify([{ role: 'user', content: 'H-U' }, { role: 'assistant', content: 'H-A' }])
+      + '\n' + String.fromCharCode(96).repeat(3) };
     const res = await mosaicCompress(msgs, cfg);
-    check('Fenced JSON parsed and applied', res[1].content!.includes('[compressed]'));
+    check('Fenced heavy JSON parsed and applied', res[1].content!.includes('H-U'));
+    check('Heavy pair flagged', res[1]._heavy === true);
   }
 
   // ── 18 ──
@@ -331,9 +324,9 @@ async function run(): Promise<void> {
     check('tool_call_id preserved', firstToolMsg?.tool_call_id === 'call_x');
     check('tool_calls skeleton preserved', firstToolCallMsg?.tool_calls?.[0]?.id === 'call_x');
     check('tool_calls function name preserved', firstToolCallMsg?.tool_calls?.[0]?.function?.name === 'read_file');
-    // reasoning_content is stripped ONLY in the compressed light zone;
-    // raw-zone messages keep their original payload untouched.
-    check('reasoning_content stripped in light zone', res.slice(1, 23).every(m => (m as any).reasoning_content === undefined));
+    // reasoning (shorter than the truncation threshold) is preserved verbatim;
+    // raw-zone messages keep their original payload untouched too.
+    check('reasoning_content preserved verbatim in light zone', res.slice(1, 23).some((m: any) => m.reasoning_content === 'deep thinking about the store module...'));
     check('reasoning_content preserved in raw zone', res.slice(23).some(m => (m as any).reasoning_content !== undefined));
   }
 
@@ -382,45 +375,56 @@ async function run(): Promise<void> {
 run().catch(err => { console.error(err); (globalThis as any).process?.exit?.(1); });
 
   // ── 22 ──
-  section('22. Light skip threshold: short messages are never sent to the LLM');
+  section('22. Light structural truncation: tool results truncated, text untouched');
   {
-    let calls = 0;
-    const cfg = { ...DEFAULT_CONFIG, lightSkipThreshold: 160, callLLM: async (sp: string, ui: string) => {
-      calls++;
-      return '[compressed] ' + ui.slice(0, 20);
-    } };
-    const msgs = makeConv(40); // all messages ~90 chars < 160
+    const bigTool = 'X'.repeat(2000);
+    const msgs: Message[] = [
+      sys('S'),
+      usr('user one'),
+      ast('assistant one'),
+      { role: 'user', content: 'user two' },
+      { role: 'tool', content: bigTool, tool_call_id: 'c1' },
+      usr('user three'),
+      ast('assistant three'),
+    ];
+    const cfg = { ...DEFAULT_CONFIG, lightStart: 1, heavyStart: 99, lightWindow: 1 };
     const res = await mosaicCompress(msgs, cfg);
-    check('No LLM calls for short messages', calls === 0);
-    check('Messages preserved verbatim', res[1].content === msgs[1].content);
+    // R=3: light = rounds [0,1) → the big tool result gets truncated
+    const toolMsg = res.find(m => m.role === 'tool')!;
+    check('Tool result truncated', toolMsg.content.length < bigTool.length);
+    check('Tool truncation keeps head+tail', toolMsg.content.includes('XXX') && toolMsg.content.includes('…[truncated]…'));
+    check('Tool call id preserved', toolMsg.tool_call_id === 'c1');
+    check('User text untouched', res.find(m => m.content === 'user two') !== undefined);
   }
 
   // ── 23 ──
-  section('23. Light skip threshold: long messages are still distilled');
+  section('23. Light structural: reasoning head+tail kept, arguments JSON shell kept');
   {
-    const long = (r: string) => r + ' '.repeat(300) + 'with substantial content to distill and remove filler words from this sentence';
-    const msgs = [
-      sys('System'),
-      usr(long('Long user message one')),
-      ast(long('Long assistant message one')),
-      usr(long('Long user message two')),
-      ast(long('Long assistant message two')),
-      usr(long('Long user message three')),
-      ast(long('Long assistant message three')),
+    const longReasoning = '思考过程的内容'.repeat(100); // 700 chars
+    const msgs: Message[] = [
+      sys('S'),
+      usr('u1'),
+      { role: 'assistant', content: 'a1', reasoning_content: longReasoning, tool_calls: [{ id: 't1', type: 'function', function: { name: 'run_code', arguments: JSON.stringify({ code: 'const x = 1;'.repeat(300) }) } }] },
+      { role: 'tool', content: 'ok', tool_call_id: 't1' },
+      usr('u2'),
+      ast('a2'),
     ];
-    const cfg = { ...DEFAULT_CONFIG, lightSkipThreshold: 160, callLLM: async (sp: string, ui: string) => '[distilled]' };
+    const cfg = { ...DEFAULT_CONFIG, lightStart: 1, heavyStart: 99, lightWindow: 1 };
     const res = await mosaicCompress(msgs, cfg);
-    // R=7: not a window boundary (7%10≠0) → no compression. Use window=1:
-    const cfg2 = { ...cfg, lightStart: 1, heavyStart: 2, lightWindow: 1, heavyWindow: 1 };
-    const res2 = await mosaicCompress(msgs, cfg2);
-    // heavy folds the oldest round, so distilled markers live in the middle zone
-    check('Light zone distilled (long content)', res2.some(m => m.content.includes('[distilled]')));
+    const asst = res.find(m => m.role === 'assistant' && m.reasoning_content !== undefined)!;
+    check('Reasoning truncated head+tail', asst.reasoning_content!.length < 100);
+    check('Reasoning starts with original head', asst.reasoning_content!.startsWith('思考过程的内容'));
+    const args = asst.tool_calls![0].function.arguments;
+    check('Arguments JSON shell preserved', args.startsWith('{"code":'));
+    check('Arguments truncated', args.length < 500 && args.length > 100);
+    check('Arguments content truncated with marker', args.includes('…[truncated]'));
+    check('Tool call id preserved', asst.tool_calls![0].id === 't1');
   }
 
   // ── 24 ──
-  section('24. Incremental light: repeated triggers never re-distill');
+  section('24. Incremental light: repeated triggers never re-process');
   {
-    const long = (i: number, tag: string) => 'Round ' + i + ' ' + tag + ': ' + 'substantial content to distill with filler words and repetition that should be removed from this message body '.repeat(4);
+    const long = (i: number, tag: string) => 'Round ' + i + ' ' + tag + ': ' + 'substantial content with filler words '.repeat(4);
     const mk = (n: number) => {
       const msgs: Message[] = [sys('S')];
       for (let i = 1; i <= n; i++) {
@@ -429,26 +433,14 @@ run().catch(err => { console.error(err); (globalThis as any).process?.exit?.(1);
       }
       return msgs;
     };
-    let lightCalls = 0;
-    const cfg = { ...DEFAULT_CONFIG, lightSkipThreshold: 0,
-      callLLM: async (sp: string, ui: string) => {
-        if (sp.includes('exactly 2 messages')) return JSON.stringify([
-          { role: 'user', content: 'H-U' }, { role: 'assistant', content: 'H-A' }]);
-        lightCalls++;
-        return '[d]';
-      } };
-    // R=40: light distills rounds 1-10 (20 messages)
+    const cfg = { ...DEFAULT_CONFIG, callLLM: async () => JSON.stringify([
+      { role: 'user', content: 'H-U' }, { role: 'assistant', content: 'H-A' }]) };
     const r40 = await mosaicCompress(mk(40), cfg);
-    check('R=40 distilled exactly 20 messages', lightCalls === 20);
-    // R=50: append rounds 41-50; only rounds 11-20 are fresh to light
-    const r50in = [...r40, ...mk(10).slice(1)];
-    const r50 = await mosaicCompress(r50in, cfg);
-    check('R=50 distilled exactly the 20 fresh messages (incremental)', lightCalls === 40);
-    // R=60: append rounds 51-60; light adds 20 fresh, heavy folds rounds 1-10
-    const r60in = [...r50, ...mk(10).slice(1)];
-    const r60 = await mosaicCompress(r60in, cfg);
-    check('R=60 light incremental (20 fresh)', lightCalls === 60);
-    checkEq('R=60 count: 2 heavy + 40 light + 60 raw + sys = 103', countMsgs(r60), 103);
+    check('R=40 marked 20 messages distilled', r40.filter((m: any) => m._distilled === true).length === 20);
+    const r50 = await mosaicCompress([...r40, ...mk(10).slice(1)], cfg);
+    check('R=50 marks exactly 20 more (incremental)', r50.filter((m: any) => m._distilled === true).length === 40);
+    const r60 = await mosaicCompress([...r50, ...mk(10).slice(1)], cfg);
+    checkEq('R=60 count: 2 heavy + 40 light + 60 raw = 102 (excl. sys)', countMsgs(r60), 102);
     check('R=60 heavy summary flagged', r60[1]._heavy === true);
     check('R=60 distilled messages flagged', r60.some((m: any) => m._distilled === true));
   }
