@@ -25,6 +25,9 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import { BasicCompactionEngine } from '@deepseek-ai/dsh-compaction-basic'
+import {
+  isCompactCheckpointSource,
+} from '@deepseek-ai/dsh-compaction'
 import type {
   CompactionResult,
   CompactionTrigger,
@@ -107,9 +110,21 @@ interface Zones {
   heavyEmpty: boolean
 }
 
-/** Whether a message is a genuine user round (not a tool result). */
+/**
+ * Whether a message is a genuine user round.
+ *
+ * The EXACT counting unit (matches the library's design): a "round" is one
+ * real user message — source.kind === 'user'. Everything else is excluded:
+ * - tool results (role:'user', source.kind==='tool')
+ * - system injections (source.kind==='plugin': runtime context, time
+ *   context, AGENTS.md, …)
+ * - official compaction checkpoints (source.kind==='plugin', plugin==='compact')
+ *
+ * This keeps the trigger count equal to the true user-message count, exactly
+ * as the library's findRoundStarts counts user nodes.
+ */
 function isUserRound(message: Message): boolean {
-  return message.role === 'user' && message.source.kind !== 'tool'
+  return message.role === 'user' && message.source.kind === 'user'
 }
 
 export class MosaicCompactionEngine extends BasicCompactionEngine {
