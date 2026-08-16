@@ -61,3 +61,24 @@ hypothetical efficiency table with measured numbers.
 **Direction**: define explicit policy for messages carrying `tool_calls` /
 `tool_call_id` / `reasoning_content`: skip them, strip, or compress content
 while preserving pairing integrity for OpenAI-compatible downstream validation.
+
+## M5（方向，未实现）：重置时刻增强 —— v2 形态
+
+**背景（2026-08-16 实测决策）**：持续中间压缩（Light/Heavy 就地替换）在
+DeepSeek 自动前缀缓存下成本不可接受——任何历史修改都使缓存前缀断裂，
+压缩当次请求整段 miss（30 倍价），实测命中率 99.7% → 4.2%，会话成本
+约 10 倍。持续压缩形态**暂停下线**。
+
+**新形态**：不持续压缩，只在"重置时刻"（官方 brief 压缩/新会话）增强：
+1. 官方把全部历史折叠成 brief（既有行为，缓存成本官方承担/新会话天然全 miss）
+2. 我们把**最近 10-20 轮**用既有结构化截断精炼（reasoning/参数/结果截断，
+   user/assistant 文本成对保留）
+3. 新会话注入顺序：[精炼近期轮 + brief]（近期记忆在前）
+
+**收益**：
+- 缓存零额外成本（新会话首次 miss 是既有行为，非新增）
+- 记忆连续性优于纯 brief（不是失忆新人，近期记忆鲜活——哲学落地）
+- surface 有界（精炼轮 + brief 固定大小）
+- 复用既有 truncate/摘要组件，实现极简
+
+**状态**：暂停。持续压缩（M2-M4 成果）保留在代码库，随时可切回。
