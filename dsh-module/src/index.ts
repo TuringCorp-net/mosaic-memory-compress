@@ -324,11 +324,24 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
     // Distill all fresh messages concurrently (library semantics: Promise.all);
     // each failure independently keeps its original verbatim.
     const distilledTexts = await Promise.all(fresh.map(entry => this.distill(entry.message, agent, signal)))
+    const meter = this.ctx.get('tokenMeter') as { estimateMessage(m: Message): number } | undefined
     for (let i = 0; i < fresh.length; i++) {
       const entry = fresh[i]
       const distilled = distilledTexts[i]
       if (distilled === null) continue // failure keeps the original verbatim
       const textBlock: TextBlock = { type: 'text', text: distilled }
+      // Shadow-price protocol (official): a replacement without a claim keeps
+      // the token-meter's surface total unchanged, so the context-usage
+      // figure would ignore light distillation. Emit compaction/prune BEFORE
+      // each replacement — the meter subtracts the shadowed price from
+      // surfaceTokens and the context-pressure projection drops accordingly.
+      if (meter !== undefined) {
+        session.append('compaction/prune', {
+          shadowedRange: { start: entry.seq, end: entry.seq },
+          shadowedSeqs: [entry.seq],
+          shadowedTokenCount: meter.estimateMessage(entry.message),
+        })
+      }
       const opts = {
         surfaceOp: { op: 'replace' as const, start: entry.seq, end: entry.seq },
         sourceEventSeqs: [entry.seq],
