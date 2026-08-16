@@ -104,7 +104,7 @@ async function run(): Promise<void> {
   console.log('║   MosaicCompress Unit Tests (Zero LLM)  ║');
   console.log('╚══════════════════════════════════════════╝');
 
-  const baseCfg = { ...DEFAULT_CONFIG, callLLM: mockLight() };
+  const baseCfg = { ...DEFAULT_CONFIG, lightSkipThreshold: 0, callLLM: mockLight() };
 
   // ── 1 ──
   section('1. Below threshold (R=20 < lightStart=30) → immediate return');
@@ -380,3 +380,39 @@ async function run(): Promise<void> {
 }
 
 run().catch(err => { console.error(err); (globalThis as any).process?.exit?.(1); });
+
+  // ── 22 ──
+  section('22. Light skip threshold: short messages are never sent to the LLM');
+  {
+    let calls = 0;
+    const cfg = { ...DEFAULT_CONFIG, lightSkipThreshold: 160, callLLM: async (sp: string, ui: string) => {
+      calls++;
+      return '[compressed] ' + ui.slice(0, 20);
+    } };
+    const msgs = makeConv(40); // all messages ~90 chars < 160
+    const res = await mosaicCompress(msgs, cfg);
+    check('No LLM calls for short messages', calls === 0);
+    check('Messages preserved verbatim', res[1].content === msgs[1].content);
+  }
+
+  // ── 23 ──
+  section('23. Light skip threshold: long messages are still distilled');
+  {
+    const long = (r: string) => r + ' '.repeat(300) + 'with substantial content to distill and remove filler words from this sentence';
+    const msgs = [
+      sys('System'),
+      usr(long('Long user message one')),
+      ast(long('Long assistant message one')),
+      usr(long('Long user message two')),
+      ast(long('Long assistant message two')),
+      usr(long('Long user message three')),
+      ast(long('Long assistant message three')),
+    ];
+    const cfg = { ...DEFAULT_CONFIG, lightSkipThreshold: 160, callLLM: async (sp: string, ui: string) => '[distilled]' };
+    const res = await mosaicCompress(msgs, cfg);
+    // R=7: not a window boundary (7%10≠0) → no compression. Use window=1:
+    const cfg2 = { ...cfg, lightStart: 1, heavyStart: 2, lightWindow: 1, heavyWindow: 1 };
+    const res2 = await mosaicCompress(msgs, cfg2);
+    // heavy folds the oldest round, so distilled markers live in the middle zone
+    check('Light zone distilled (long content)', res2.some(m => m.content.includes('[distilled]')));
+  }

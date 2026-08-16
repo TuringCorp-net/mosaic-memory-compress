@@ -35,6 +35,16 @@ export interface MosaicConfig {
   heavyWindow: number;
 
   /**
+   * Light distillation skips messages whose content is at or below this
+   * character length (or empty / placeholder-only). Such messages have no
+   * filler worth removing, and calling the LLM on them wastes tokens and
+   * risks meaningless replies. Also acts as an implicit "already distilled"
+   * marker: distilled messages get shorter, so repeated triggers stop
+   * re-calling the LLM on them. Default 160.
+   */
+  lightSkipThreshold?: number;
+
+  /**
    * LLM call function. Receives (systemPrompt, userInput) and returns the
    * model's text response. Users should wire this to their own LLM provider.
    *
@@ -220,12 +230,17 @@ async function runLightCompressLLM(
 3. Tool results (code, file contents, web content): summarize to the essential conclusion in 1-3 lines
 4. Output ONLY the compressed text — no quotes, no prefixes, no explanations`;
 
+  const threshold = config.lightSkipThreshold ?? 160;
   const results = await Promise.all(messages.map(async (m) => {
+    const text = (m.content || '').trim();
+    // Skip messages with no meaningful content: empty, placeholder-only, or
+    // already-terse. No LLM call, original preserved verbatim.
+    if (text.length <= threshold) return m;
     const roleLabel = m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : m.role;
     try {
       const content = await config.callLLM(
         systemPrompt,
-        `[Role] ${roleLabel}\n\n${m.content || ''}`,
+        `[Role] ${roleLabel}\n\n${text}`,
       );
       const c = (content || '').trim();
       if (!c) return m;

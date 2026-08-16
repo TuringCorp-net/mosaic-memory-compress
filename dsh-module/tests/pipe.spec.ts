@@ -10,7 +10,7 @@ function seedSession(rounds: number): Session {
   const seed: any[] = [{ type: 'turn/start', seq: 0, time: t0, data: { turn: 1 } }]
   for (let i = 0; i < rounds; i++) {
     const message = createUserMessage({
-      content: [{ type: 'text', text: 'user round ' + i + ' — some instruction content for the agent to follow' }],
+      content: [{ type: 'text', text: 'user round ' + i + ' — ' + 'instruction content for the agent to follow, with enough substance to exceed the light skip threshold and get distilled. '.repeat(3) }],
       source: { kind: 'user' },
     })
     seed.push({ type: 'user/message', seq: i + 1, time: t0 + i, data: message, surfaceOp: 'append' })

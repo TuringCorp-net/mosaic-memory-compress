@@ -54,6 +54,12 @@ export interface MosaicConfig {
   heavyWindow: number
   /** Generation cap for one light distillation call (default 1024). */
   lightMaxTokens: number
+  /**
+   * Light distillation skips messages at or below this length (default 160):
+   * no filler worth removing, no wasted LLM call, and distilled messages
+   * naturally fall under it so repeated triggers don't re-distill.
+   */
+  lightSkipThreshold: number
   /** Generation cap for the heavy checkpoint (default 8192). */
   maxTokens: number
 }
@@ -80,6 +86,7 @@ const DEFAULTS: Required<MosaicConfig> = {
   heavyStart: 50,
   heavyWindow: 10,
   lightMaxTokens: 1024,
+  lightSkipThreshold: 160,
   maxTokens: 8192,
 }
 
@@ -261,6 +268,10 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
     agent: Agent,
     signal: AbortSignal,
   ): Promise<string | null> {
+    const text = this.textOf(message)
+    // No meaningful content (empty / placeholder-only / already terse):
+    // keep verbatim, zero LLM calls — also makes repeated triggers cheap.
+    if (text.trim().length <= this.mosaic.lightSkipThreshold) return null
     try {
       const distilled = await this.distillWithLlm(message, agent, signal)
       return distilled.length > 0 ? distilled : null
