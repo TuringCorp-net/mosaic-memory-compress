@@ -136,7 +136,7 @@ LLM 蒸馏文本是"90% 成本打 10% 的靶"：254 次调用/12s/38 万 token �
 5.6% 净省。
 
 **新方案（实测对比）**：结构化截断（reasoning 头尾 30、arguments JSON 壳
-120、结果头 300 尾 200、注入 200、文本不动）→ 46.1% 净省、零 LLM、毫秒级。
+120、结果头 30 尾 30、注入 30、文本不动）→ 46.1% 净省、零 LLM、毫秒级。
 
 **API 安全性全部实测**（DeepSeek 官方接口）：
 - reasoning_content 截断/删除 → 200 OK，回答正确（finish_reason=stop）
@@ -145,3 +145,14 @@ LLM 蒸馏文本是"90% 成本打 10% 的靶"：254 次调用/12s/38 万 token �
 
 **对 DSH 的启示**：surface 的大头是结构化内容（reasoning/arguments/result），
 不是文本——任何上下文压缩都应先处理结构化负载。
+
+## 13. 真实挂载实测（2026-08-16 13:18，结构化 light 首次触发）
+
+- 触发：R=50 窗口边界；556 条替换（assistant 237 / tool-result 217 / user 102）
+- 截断验证：reasoning 精确 61 字符（头 30+尾 30）；arguments 216/217 带截断
+  标记（JSON 壳保留）；tool-result 75 字符（头 30+尾 30）；user 文本零损失
+- shadow price：24.6 万 token 扣除；**上下文使用率 53% → 30%**（用户 GUI 确认）
+- LLM 调用：0（对比 LLM 版：254 次/38 万 token/12.5s）
+- 已知：journal 的 TRIGGERED 行在重启后首次触发未落盘（systemd 缓冲疑云，
+  事件日志为准）；重启后 distilledSeqs 清空导致全量重截断一次（内存 Set，
+  可后续持久化）

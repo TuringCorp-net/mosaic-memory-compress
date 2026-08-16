@@ -57,7 +57,7 @@ LLM calls):
 - reasoning_content: head+tail 30 chars (field preserved; DeepSeek replays
   it on tool-call turns — truncation API-verified)
 - tool_calls arguments: JSON shell preserved, string fields truncated to 120
-- tool results: text head 300 + tail 200
+- tool results: text head 30 + tail 30
 - user/assistant text: untouched — stays fresh for the Heavy fold
 
 Incremental: distilled messages carry a `_distilled` marker; re-triggers

@@ -57,7 +57,7 @@ savings vs 5.6% from 254 LLM calls):
 - reasoning blocks: head+tail 30 chars (field kept — DeepSeek replays it)
 - tool-call arguments: JSON shell preserved, string fields truncated to 120
 - tool-result blocks: inner text head 300 + tail 200
-- plugin injections: truncated to 200
+- plugin injections: truncated to 30
 - user/assistant text: untouched (stays fresh for the Heavy fold)
 
 Synchronous, deterministic, never fails; shadow-price (compaction/prune)
