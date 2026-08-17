@@ -92,7 +92,7 @@ const compressed = await mosaicCompress(messages, config);
 
 MosaicCompress 的 DSH 插件后端在 [`dsh-module/`](dsh-module/DESIGN.cn.md)：
 `MosaicCompactionEngine` 继承官方 `BasicCompactionEngine`，把三区遗忘曲线
-带进 DSH 会话——Light 逐条蒸馏（1:1 表面替换，原始进 shadow），Heavy 折叠为
+带进 DSH 会话——Light 结构化截断（1:1 表面替换，原始进 shadow），Heavy 折叠为
 单个永不超上限的 checkpoint。中文设计文档：[dsh-module/DESIGN.cn.md](dsh-module/DESIGN.cn.md)。
 
 相关：
