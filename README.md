@@ -43,7 +43,7 @@ message array:
 
 ```
 recent 30 rounds   → verbatim (vivid — what you are actually working on)
-rounds 30–50       → per-message distillation (shape kept, detail dehydrated)
+rounds 30–50       → structural truncation (reasoning/args/results trimmed, text kept)
 rounds 50+         → one heavy pair: identity, environment, permissions, rules
 ```
 
@@ -95,7 +95,8 @@ const config: MosaicConfig = {
   },
 };
 
-// Call every turn — zero cost below threshold, ~1-2s delay at compression milestones
+// Call every turn — zero cost below threshold; structural light is millisecond-fast,
+// Heavy folds take ~1-2s (one LLM summary call)
 const compressed = await mosaicCompress(messages, config);
 ```
 
@@ -104,7 +105,7 @@ const compressed = await mosaicCompress(messages, config);
 - **Stateless & repeatable** — no session state; call it every turn, and the output can be fed back in as input
 - **Zero-cost below threshold** — returns immediately if no compression is due
 - **Anti-jitter** — compression only at configurable window boundaries
-- **LLM-agnostic** — bring your own `callLLM` function (OpenAI, Anthropic, local models…)
+- **LLM-agnostic** — bring your own `callLLM` function for Heavy (OpenAI, Anthropic, local models…); light runs zero-LLM
 - **Tool-call safe** — tool messages don't break round counting
 - **Graceful degradation** — LLM failures don't block the conversation
 
@@ -126,7 +127,7 @@ const compressed = await mosaicCompress(messages, config);
 | `lightWindow` | `number` | `10` | Anti-jitter: compress every N rounds |
 | `heavyStart` | `number` | `50` | Rounds beyond this → Heavy zone |
 | `heavyWindow` | `number` | `10` | Anti-jitter for heavy compression |
-| `callLLM` | `(sys: string, user: string) => Promise<string>` | *required* | Your LLM call function |
+| `callLLM` | `(sys: string, user: string) => Promise<string>` | *optional* | Your LLM call function — **Heavy zone only**; light is structural truncation. Omit it for light-only usage |
 | `onCompress` | `(event: CompressEvent) => void \| Promise<void>` | *optional* | Hook after each compression; receives the original payload for host-side archiving |
 
 ### `DEFAULT_CONFIG`
@@ -200,9 +201,9 @@ algorithm with a rule-based pseudo-LLM. Latest sweep (default parameters):
 
 | Rounds | msgs in | msgs out | tokens in | tokens out | ratio | facts kept |
 |---|---:|---:|---:|---:|---:|---:|
-| 100 | 234 | 120 | 9,451 | 4,472 | 52.7% | 100% |
-| 1,000 | 2,310 | 122 | 91,869 | 5,307 | 94.2% | 100% |
-| 5,000 | 11,500 | 120 | 457,484 | 9,805 | 97.9% | 100% |
+| 100 | 234 | 120 | 9,451 | 4,580 | 51.5% | 100% |
+| 1,000 | 2,310 | 122 | 91,869 | 5,523 | 94.0% | 100% |
+| 5,000 | 11,500 | 120 | 457,484 | 9,913 | 97.8% | 100% |
 
 ```bash
 npm run bench                        # synthetic sweep: 100 / 500 / 1000 / 5000 rounds

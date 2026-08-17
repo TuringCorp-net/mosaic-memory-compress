@@ -9,7 +9,7 @@
 Three zones, computed from the conversation surface:
 
 - **Raw zone (recent N rounds, default 30)** — untouched, zero overhead
-- **Light zone (next M rounds, default 20)** — per-message distillation,
+- **Light zone (next M rounds, default 20)** — structural truncation,
   message count unchanged
 - **Heavy zone (older rounds)** — folded into ONE bounded checkpoint that
   never exceeds its cap (incremental summary-of-summary)
@@ -30,8 +30,8 @@ every agent pre-step → compactIfNeeded(agent, trigger, signal)
   │
   ├─ LIGHT pass — per-node replacement on the middle zone:
   │     for each node in rounds [heavyStart, lightStart):
-  │       distilled = one LLM call per message (concurrent)
-  │       session.append(same role, distilled content, {
+  │       truncated structurally (zero LLM, synchronous)
+  │       session.append(same role, truncated content, {
   │         surfaceOp: { op: 'replace', start: seq, end: seq },  // 1:1
   │         sourceEventSeqs: [seq],
   │       })
@@ -142,7 +142,6 @@ a run. Returning `null` means nothing happens this step — the zero-cost path.
     lightWindow: 10
     heavyStart: 50
     heavyWindow: 10
-    lightMaxTokens: 1024
     maxTokens: 8192
 ```
 
@@ -150,8 +149,8 @@ a run. Returning `null` means nothing happens this step — the zero-cost path.
 
 - **Originals are never deleted** — replacement shadows them; queryable.
 - **The checkpoint node is the heavy summary**, bounded by `maxTokens`.
-- **Light is per-message** (one LLM call per message, plain text, concurrent)
-  — never batched; failures keep originals verbatim.
+- **Light is structural truncation** (synchronous, deterministic, never fails)
+  — zero LLM; failures keep originals verbatim.
 - Compaction markers (`compaction/start|end`) give the host durable records
   of what happened.
 

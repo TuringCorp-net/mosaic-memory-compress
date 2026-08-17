@@ -32,7 +32,7 @@ MosaicCompress 模拟的是**生物遗忘曲线**：人不会记得 300 轮对�
 
 ```
 最近 30 轮    → 逐字保留（鲜活——正在做的事）
-第 30-50 轮   → 逐条蒸馏（保留结构，细节脱水）
+第 30-50 轮   → 结构化截断（reasoning/参数/结果精简，文本保留）
 第 50 轮以前  → 一条摘要对：身份、环境、权限、规则
 ```
 
@@ -75,7 +75,7 @@ const config: MosaicConfig = {
   },
 };
 
-// 每轮调用一次——阈值以下零成本，压缩里程碑时 1-2 秒延迟
+// 每轮调用一次——阈值以下零成本；结构化 light 毫秒级，Heavy 折叠约 1-2 秒
 const compressed = await mosaicCompress(messages, config);
 ```
 

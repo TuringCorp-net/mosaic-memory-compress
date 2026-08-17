@@ -19,9 +19,8 @@ algorithm's mechanism — not LLM quality:
    - **30% of assistant replies carry `reasoning_content`** (DeepSeek-style),
    - a **planted fact** (`FACT-<id>`) every 20 rounds, trackable through the
      whole pipeline.
-2. **Pseudo-LLM** (deterministic, seeded):
-   - Light: keeps fact-bearing messages verbatim; distills tool payloads to
-     60 chars and prose to 80 chars (a "perfect de-watering" compressor),
+2. **Pseudo-LLM** (deterministic, seeded) — Heavy zone only, since the
+   library's light pass is structural truncation (no LLM involvement):
    - Heavy: collects every fact present in the heavy zone into a 2-message
      summary pair, bounded by a simulated `max_tokens` budget
      (`DEFAULT_HEAVY_BUDGET = 16384`). This mirrors what a real model does

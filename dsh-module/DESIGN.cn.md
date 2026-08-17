@@ -28,7 +28,7 @@ DSH 的对话就是一块表面数组（surface：user/assistant/tool 消息，�
   ├─ 未达阈值 或 不在窗口边界 → return null（零成本，什么都不做）
   │
   ├─ LIGHT 通道 — 对中间区（heavyStart..lightStart 轮）逐节点替换：
-  │     每节点：一次 LLM 蒸馏调用（并发执行）
+  │     每节点：结构化截断（零 LLM、同步）
   │     session.append(同角色, 蒸馏后内容, {
   │       surfaceOp: { op: 'replace', start: seq, end: seq },  // 1:1 替换
   │       sourceEventSeqs: [seq],
@@ -127,7 +127,6 @@ if (count % lightWindow !== 0) return null   // 不在窗口边界（防抖）
     lightWindow: 10
     heavyStart: 50
     heavyWindow: 10
-    lightMaxTokens: 1024
     maxTokens: 8192
 ```
 
@@ -135,7 +134,7 @@ if (count % lightWindow !== 0) return null   // 不在窗口边界（防抖）
 
 - **原始内容永不删除**——替换只是 shadow，可查询。
 - **checkpoint 节点 = heavy 摘要**，受 `maxTokens` 约束。
-- **Light 逐条**（每消息一次 LLM 调用、纯文本、并发）——绝不批量；失败保留原文。
+- **Light 为结构化截断**（同步、确定、永不失败）——零 LLM；失败保留原文。
 - `compaction/start|end` 标记 = 宿主的持久记录。
 
 ## 七、测试

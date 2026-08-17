@@ -1,6 +1,6 @@
 # MosaicCompress — Roadmap
 
-> Last updated: 2026-08-14.
+> Last updated: 2026-08-17.
 
 ## Strategic Direction
 
@@ -49,14 +49,14 @@ them later on demand in their own persistence layer (database, log, or
 platform spill). MosaicCompress stays stateless; this is an interface for
 the architecture boundary, not built-in storage.
 
-## Milestone 3 — Real-LLM Information Retention Benchmark
+## Milestone 3 — Real-LLM Information Retention Benchmark ✅ (implemented)
 
 **Direction**: script a realistic long conversation (≥100 rounds) → compress →
 ask the model early-fact questions → measure retention. Also measure actual
 token usage (not the assumed 200/800 tokens per round) to replace the
 hypothetical efficiency table with measured numbers.
 
-## Milestone 4 — Tool-Message Semantics
+## Milestone 4 — Tool-Message Semantics ✅ (implemented 2026-08-16 — structural light truncates reasoning/arguments/results while preserving tool pairing)
 
 **Direction**: define explicit policy for messages carrying `tool_calls` /
 `tool_call_id` / `reasoning_content`: skip them, strip, or compress content

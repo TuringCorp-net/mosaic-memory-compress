@@ -1,6 +1,6 @@
 # MosaicCompress — Stateless Dialogue Compression Based on Natural Forgetting Curve
 
-> Version: v1.0.0 | Status: Stable | Last updated: 2026-06-08
+> Version: v1.1.0 | Status: Stable | Last updated: 2026-08-17
 
 ---
 
@@ -22,7 +22,9 @@ All three require users to understand and manage the concept of a "Session." For
 
 Human memory is not all-or-nothing. Recent events are remembered clearly; older events become fuzzy — but important events leave lasting impressions.
 
-MosaicCompress uses an LLM to simulate this process:
+MosaicCompress simulates this process — light compression is structural
+(rule-based, zero LLM), heavy compression delegates the summarizing judgment
+to an LLM:
 
 - **Recent dialogue**: Keep full original text (recent interactions need the most detail)
 - **Slightly older**: Keep message structure, distill content ("de-watering") — Light Compress
@@ -40,11 +42,11 @@ MosaicCompress is a **pure, stateless function**. Given a message array, it part
 Message array (R rounds total, from oldest to newest):
 
 Round 1 ────→ Round (R-heavyStart)     │ Heavy zone → ALL → 2 msgs
-Round (R-heavyStart+1) → (R-lightStart) │ Light zone → distill each, count unchanged
+Round (R-heavyStart+1) → (R-lightStart) │ Light zone → structural truncation, count unchanged
 Round (R-lightStart+1) ──→ Round R      │ Raw zone  → keep as-is
 ```
 
-**Anti-jitter**: Compression only fires when `R % lightWindow == 0` (Light) or `R % heavyWindow == 0` (Heavy). Typical configuration triggers every 10 rounds, so users experience a ~1-2 second delay every 10 turns — imperceptible in normal conversation flow.
+**Anti-jitter**: Compression only fires when `R % lightWindow == 0` (Light) or `R % heavyWindow == 0` (Heavy). Light compression is pure structural truncation (milliseconds, zero LLM); only Heavy folds make one LLM summary call (~1-2s) at heavy-window boundaries.
 
 ### Light Compress
 
@@ -89,7 +91,7 @@ interface MosaicConfig {
   lightWindow: number;  // Anti-jitter for Light Compress. Default 10
   heavyStart: number;   // Rounds before this enter Heavy zone. Default 50
   heavyWindow: number;  // Anti-jitter for Heavy Compress. Default 10
-  callLLM: (systemPrompt: string, userInput: string) => Promise<string>;
+  callLLM?: (systemPrompt: string, userInput: string) => Promise<string>; // Heavy only; omit for light-only usage
 }
 ```
 
@@ -115,7 +117,10 @@ Total:      102 msgs (+ 1 system prompt if present)
 
 ## 6. Design Philosophy
 
-1. **Trust the LLM's judgment**: No rule-based truncation, no TF-IDF scoring. The LLM decides what's important
+1. **Data-driven light, LLM-judged heavy**: the light zone is structural
+   truncation of the big structured payloads (reasoning/arguments/results —
+   measured to be ~90% of surface tokens), preserving text verbatim; the
+   heavy zone delegates summarization judgment to the LLM
 2. **Preserve message skeleton**: Light Compress keeps the user/assistant alternation structure — causal chains remain traceable
 3. **Natural forgetting, not violent truncation**: Older = fuzzier, newer = clearer
 4. **Zero user awareness**: No Session concept to understand, no context window to manage
@@ -223,6 +228,41 @@ dialogues ever become real, the multi-level model remains available as a
 configuration-level extension (a granularity table) without touching the
 algorithm — but it is not implemented today.
 
+### 8.4 Future: progressive forgetting tiers (theory, not implemented)
+
+Structural truncation makes the light pass **zero-cost**, so the two-zone
+simplification is no longer forced by LLM-call economics — it is a running
+choice. A finer position-is-age ladder is available whenever needed, e.g.:
+
+- rounds 20–30: keep first/last 200 lines of structural payloads
+- rounds 30–40: keep first/last 100 lines
+- rounds 40–50: keep first/last 30 lines
+
+Each tier forgets more of the structured payload (reasoning, arguments,
+results, injections) — content the model's reasoning progressively stops
+using. User/assistant **text is never compressed** in any tier, so the
+conversation's core meaning always survives; the Heavy zone then folds each
+ancient region into a distilled-forever kernel, keeping the conversation
+endlessly continuable.
+
+V1 ships the two-zone scheme (light + heavy) and observes real-world effect
+before any finer tiering.
+### 8.5 Cost model: the cache-breakpoint tax (measured 2026-08-16)
+
+On providers with automatic prefix caching (DeepSeek, OpenAI), ANY in-place
+edit of sent history breaks the cache prefix — the first edited node onward
+is a full miss (DeepSeek prices misses 30× hits). Measured on a real DSH
+session: 99.7% → 4.2% hit rate on the compression request, recovering to
+99.9% immediately after.
+
+The tax is **per-window, not per-message**: one full-miss request every N
+rounds, amortized ≈ surface×30/N per round. N=10 measured ~10× conversation
+cost; N=20/50 halves/quarters it. This is a parameterized tradeoff — the tax
+buys bounded surface and unbounded dialogue, and can be tuned to the host's
+cost sensitivity. (Zero-tax alternative: reset-moment enhancement — see
+ROADMAP M5.)
+
+
 ## 9. Empirical Case Study: One Event, Three Memory Carriers
 
 > A real experiment, anonymized (participants and topic are not reproduced);
@@ -268,23 +308,3 @@ two ways:
 ## 10. License
 
 MIT
-
-### 8.4 Future: progressive forgetting tiers (theory, not implemented)
-
-Structural truncation makes the light pass **zero-cost**, so the two-zone
-simplification is no longer forced by LLM-call economics — it is a running
-choice. A finer position-is-age ladder is available whenever needed, e.g.:
-
-- rounds 20–30: keep first/last 200 lines of structural payloads
-- rounds 30–40: keep first/last 100 lines
-- rounds 40–50: keep first/last 30 lines
-
-Each tier forgets more of the structured payload (reasoning, arguments,
-results, injections) — content the model's reasoning progressively stops
-using. User/assistant **text is never compressed** in any tier, so the
-conversation's core meaning always survives; the Heavy zone then folds each
-ancient region into a distilled-forever kernel, keeping the conversation
-endlessly continuable.
-
-V1 ships the two-zone scheme (light + heavy) and observes real-world effect
-before any finer tiering.
