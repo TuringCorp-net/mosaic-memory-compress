@@ -1,12 +1,12 @@
-# MosaicCompress
+# MosaicMemoryCompress
 
 **基于自然遗忘曲线的无状态对话压缩。**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](https://www.typescriptlang.org)
-[![GitHub stars](https://img.shields.io/github/stars/TuringCorp-net/mosaic_compress)](https://github.com/TuringCorp-net/mosaic_compress/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/TuringCorp-net/mosaic-memory-compress)](https://github.com/TuringCorp-net/mosaic-memory-compress/stargazers)
 
-LLM 对话线性增长，MosaicCompress 让它们**永远有界**——自动、无感，用户甚至
+LLM 对话线性增长，MosaicMemoryCompress 让它们**永远有界**——自动、无感，用户甚至
 不需要知道"会话"是什么。
 
 ## 工作原理
@@ -27,7 +27,7 @@ LLM 对话线性增长，MosaicCompress 让它们**永远有界**——自动、
 行业通用做法是阈值触发的一次性全量总结：窗口满了就把全部历史压成一份简报，
 交给"看过笔记的新人"——最近的细节也在最该鲜活的地方被转述丢失，且损失不可见。
 
-MosaicCompress 模拟的是**生物遗忘曲线**：人不会记得 300 轮对话的第 3 轮，
+MosaicMemoryCompress 模拟的是**生物遗忘曲线**：人不会记得 300 轮对话的第 3 轮，
 只会留下教训、规则与关系。算法在同一份消息数组里复现这条曲线：
 
 ```
@@ -39,7 +39,7 @@ MosaicCompress 模拟的是**生物遗忘曲线**：人不会记得 300 轮对�
 没有切换时刻、没有重置、没有长度上限。**损失是可见的**：分区结构告诉模型
 它不再知道什么，需要时可以从 shadowed 存储取回细节。
 
-| | 阈值总结（行业通用） | MosaicCompress |
+| | 阈值总结（行业通用） | MosaicMemoryCompress |
 |---|---|---|
 | 比喻 | 失忆 + 读日记 | 连续的鲜活记忆 |
 | 连续性 | 每次压缩都重置 | 永不重置 |
@@ -47,7 +47,7 @@ MosaicCompress 模拟的是**生物遗忘曲线**：人不会记得 300 轮对�
 | 近期轮次 | 在最该鲜活的时刻被转述 | 永远逐字 |
 | 目的 | 可移植的交接简报 | 无界的人机对话 |
 
-两种哲学互补：交接简报服务于冷启动与长中断；MosaicCompress 服务于
+两种哲学互补：交接简报服务于冷启动与长中断；MosaicMemoryCompress 服务于
 **留在对话里**。配合宿主持久存储（如 MEMORY.md），人与 AI 可以在同一条
 遗忘曲线下无限对话。[设计文档](docs/design.cn.md) §8/§10 给出了位置即年龄
 模型的形式化基础，§9 是"同一事件、三种记忆载体"的实证案例。
@@ -55,13 +55,13 @@ MosaicCompress 模拟的是**生物遗忘曲线**：人不会记得 300 轮对�
 ## 快速开始
 
 ```bash
-npm install mosaic-compress
+npm install mosaic-memory-compress
 ```
 
 ```typescript
-import { mosaicCompress, DEFAULT_CONFIG, type MosaicConfig } from 'mosaic-compress';
+import { mosaicMemoryCompress, DEFAULT_CONFIG, type MosaicMemoryConfig } from 'mosaic-memory-compress';
 
-const config: MosaicConfig = {
+const config: MosaicMemoryConfig = {
   ...DEFAULT_CONFIG,
   callLLM: async (systemPrompt, userInput) => {
     const res = await openai.chat.completions.create({
@@ -76,7 +76,7 @@ const config: MosaicConfig = {
 };
 
 // 每轮调用一次——阈值以下零成本；结构化 light 毫秒级，Heavy 折叠约 1-2 秒
-const compressed = await mosaicCompress(messages, config);
+const compressed = await mosaicMemoryCompress(messages, config);
 ```
 
 ## 特性
@@ -90,8 +90,8 @@ const compressed = await mosaicCompress(messages, config);
 
 ## DeepSeek Harness 集成
 
-MosaicCompress 的 DSH 插件后端在 [`dsh-module/`](dsh-module/DESIGN.cn.md)：
-`MosaicCompactionEngine` 继承官方 `BasicCompactionEngine`，把三区遗忘曲线
+MosaicMemoryCompress 的 DSH 插件后端在 [`dsh-module/`](dsh-module/DESIGN.cn.md)：
+`MosaicMemoryCompactionEngine` 继承官方 `BasicCompactionEngine`，把三区遗忘曲线
 带进 DSH 会话——Light 结构化截断（1:1 表面替换，原始进 shadow），Heavy 折叠为
 单个永不超上限的 checkpoint。中文设计文档：[dsh-module/DESIGN.cn.md](dsh-module/DESIGN.cn.md)。
 

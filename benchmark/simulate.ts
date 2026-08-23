@@ -1,7 +1,7 @@
 /**
- * MosaicCompress — Deterministic Mechanism Simulation (benchmark/simulate.ts)
+ * MosaicMemoryCompress — Deterministic Mechanism Simulation (benchmark/simulate.ts)
  *
- * Runs the REAL mosaicCompress implementation with a RULE-BASED pseudo-LLM
+ * Runs the REAL mosaicMemoryCompress implementation with a RULE-BASED pseudo-LLM
  * (zero cost, fully reproducible with fixed seeds) to answer mechanism-level
  * questions that do NOT need a real model:
  *
@@ -26,7 +26,7 @@
  */
 
 import * as fs from 'node:fs';
-import { mosaicCompress, type MosaicConfig, type Message } from '../src/index';
+import { mosaicMemoryCompress, type MosaicMemoryConfig, type Message } from '../src/index';
 
 // ============================================================
 // Knobs
@@ -206,7 +206,7 @@ function pseudoHeavy(_sp: string, input: string, heavyBudget: number): string {
   ]);
 }
 
-function makePseudoLLM(heavyBudget: number): MosaicConfig['callLLM'] {
+function makePseudoLLM(heavyBudget: number): MosaicMemoryConfig['callLLM'] {
   return async (sp, input) => {
     if (sp.includes('exactly 2 messages')) return pseudoHeavy(sp, input, heavyBudget);
     return pseudoLight(sp, input);
@@ -224,12 +224,12 @@ async function analyze(rounds: number, heavyBudget: number = DEFAULT_HEAVY_BUDGE
   const rawTokens = totalTokens(raw);
   const rawFacts = [...FACTS.entries()];
 
-  const config: MosaicConfig = {
+  const config: MosaicMemoryConfig = {
     lightStart: 30, lightWindow: 10, heavyStart: 50, heavyWindow: 10,
     callLLM: makePseudoLLM(heavyBudget),
   };
 
-  const out = await mosaicCompress(raw, config);
+  const out = await mosaicMemoryCompress(raw, config);
   const cTokens = totalTokens(out);
   const nMsgs = out.filter(m => m.role !== 'system').length;
 
@@ -272,11 +272,11 @@ async function analyzeCompact(rounds: number, heavyBudget: number) {
   const raw = makeConversation(rounds, rng);
   const rawTokens = totalTokens(raw);
   const rawFacts = [...FACTS.entries()];
-  const config: MosaicConfig = {
+  const config: MosaicMemoryConfig = {
     lightStart: 30, lightWindow: 10, heavyStart: 50, heavyWindow: 10,
     callLLM: makePseudoLLM(heavyBudget),
   };
-  const out = await mosaicCompress(raw, config);
+  const out = await mosaicMemoryCompress(raw, config);
   const cTokens = totalTokens(out);
   const outText = out.map(m => m.content || '').join('\n');
   let kept = 0;
@@ -315,7 +315,7 @@ async function analyzeFile(path: string): Promise<void> {
   }
 
   const rawTokens = totalTokens(raw);
-  const config: MosaicConfig = {
+  const config: MosaicMemoryConfig = {
     lightStart: 30, lightWindow: 10, heavyStart: 50, heavyWindow: 10,
     callLLM: makePseudoLLM(DEFAULT_HEAVY_BUDGET),
   };
@@ -325,7 +325,7 @@ async function analyzeFile(path: string): Promise<void> {
   console.log('  role mix: ' + Object.entries(raw.reduce<Record<string, number>>((acc, m) => { acc[m.role] = (acc[m.role] || 0) + 1; return acc; }, {}))
     .map(([k, v]) => k + '=' + v).join('  '));
 
-  const out = await mosaicCompress(raw, config);
+  const out = await mosaicMemoryCompress(raw, config);
   const cTokens = totalTokens(out);
   const nMsgs = out.filter(m => m.role !== 'system').length;
   console.log('  after compression: msgs ' + raw.length + ' → ' + out.length +
@@ -348,7 +348,7 @@ async function main(): Promise<void> {
   }
 
   console.log('╔══════════════════════════════════════════════════════════╗');
-  console.log('║  MosaicCompress — Deterministic Mechanism Simulation    ║');
+  console.log('║  MosaicMemoryCompress — Deterministic Mechanism Simulation    ║');
   console.log('║  (real algorithm, rule-based pseudo-LLM, zero LLM cost) ║');
   console.log('╚══════════════════════════════════════════════════════════╝');
   console.log('Parameters: toolRoundRate=' + TOOL_ROUND_RATE + ' reasoningRate=' + REASONING_RATE +

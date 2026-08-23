@@ -1,10 +1,10 @@
-# MosaicCompress — Roadmap
+# MosaicMemoryCompress — Roadmap
 
 > Last updated: 2026-08-17.
 
 ## Strategic Direction
 
-MosaicCompress stays a small, focused library: message-level forgetting-curve
+MosaicMemoryCompress stays a small, focused library: message-level forgetting-curve
 compression. DeepSeek Harness is the primary integration reference, but the
 library remains host-agnostic.
 
@@ -46,7 +46,7 @@ library.
 **Direction**: add an `onCompress` callback that receives the raw payload being
 compressed (plus zone metadata), so hosts can archive originals and re-read
 them later on demand in their own persistence layer (database, log, or
-platform spill). MosaicCompress stays stateless; this is an interface for
+platform spill). MosaicMemoryCompress stays stateless; this is an interface for
 the architecture boundary, not built-in storage.
 
 ## Milestone 3 — Real-LLM Information Retention Benchmark ✅ (implemented)

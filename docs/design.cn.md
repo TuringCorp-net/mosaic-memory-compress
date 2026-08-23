@@ -1,4 +1,4 @@
-# MosaicCompress — 基于自然遗忘曲线的马赛克式对话压缩
+# MosaicMemoryCompress — 基于自然遗忘曲线的马赛克式对话压缩
 
 > 版本: v1.0.0 | 状态: 稳定 | 最后更新: 2026-08-14
 
@@ -22,7 +22,7 @@
 
 人类的记忆不是"要么全记得，要么全忘记"。越近的事记得越清晰，越远的事越模糊——但重要的事件即使久远，也能留下印象。
 
-MosaicCompress 用大模型自身来模拟这个过程：
+MosaicMemoryCompress 用大模型自身来模拟这个过程：
 
 - **近期的对话**：保留完整原文（用户最近的交互，细节最重要）
 - **稍远的对话**：保留消息骨架，内容做"去水分"（Light Compress——结构化截断，零 LLM）
@@ -36,7 +36,7 @@ MosaicCompress 用大模型自身来模拟这个过程：
 ## 三、参数模型
 
 ```typescript
-interface MosaicConfig {
+interface MosaicMemoryConfig {
   /** 从第几轮开始触发 Light Compress，默认 30 */
   lightStart: number;
   /** Light Compress 每次压缩多少轮，默认 10 */
@@ -188,7 +188,7 @@ if (config.heavyStart <= config.lightStart) {
 
 ## 八、形式化模型与工程简化（理论支撑）
 
-> 本节是算法的**理论支撑**，不是实现计划。它解释了 MosaicCompress 为什么采用
+> 本节是算法的**理论支撑**，不是实现计划。它解释了 MosaicMemoryCompress 为什么采用
 > 两段式（Light + Heavy），以及 Heavy 的递归合并为什么在数学上成立。
 > 精确的多段式模型（下文"精确模型"）不实现——详见 8.3 的工程选择。
 

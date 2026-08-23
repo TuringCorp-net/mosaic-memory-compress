@@ -1,6 +1,6 @@
 # Contributing
 
-MosaicCompress is a small, opinionated library — Occam's razor applies.
+MosaicMemoryCompress is a small, opinionated library — Occam's razor applies.
 
 ## Principles
 

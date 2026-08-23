@@ -1,6 +1,6 @@
-# MosaicCompress Benchmark
+# MosaicMemoryCompress Benchmark
 
-Deterministic mechanism simulation of the **real** `mosaicCompress` algorithm
+Deterministic mechanism simulation of the **real** `mosaicMemoryCompress` algorithm
 with a rule-based pseudo-LLM. Zero LLM cost, fully reproducible (fixed seeds),
 seconds to run.
 
@@ -57,7 +57,7 @@ algorithm's mechanism — not LLM quality:
 | 1,000 | 2,310 | 122 | 91,869 | 5,307 | 94.2% | 50/50 (100%) |
 | 5,000 | 11,500 | 120 | 457,484 | 9,805 | 97.9% | 250/250 (100%) |
 
-![Context growth: uncompressed vs MosaicCompress (log scale)](chart.svg)
+![Context growth: uncompressed vs MosaicMemoryCompress (log scale)](chart.svg)
 
 Reproduce with:
 

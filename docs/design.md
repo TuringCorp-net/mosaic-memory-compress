@@ -1,4 +1,4 @@
-# MosaicCompress — Stateless Dialogue Compression Based on Natural Forgetting Curve
+# MosaicMemoryCompress — Stateless Dialogue Compression Based on Natural Forgetting Curve
 
 > Version: v1.1.0 | Status: Stable | Last updated: 2026-08-17
 
@@ -22,7 +22,7 @@ All three require users to understand and manage the concept of a "Session." For
 
 Human memory is not all-or-nothing. Recent events are remembered clearly; older events become fuzzy — but important events leave lasting impressions.
 
-MosaicCompress simulates this process — light compression is structural
+MosaicMemoryCompress simulates this process — light compression is structural
 (rule-based, zero LLM), heavy compression delegates the summarizing judgment
 to an LLM:
 
@@ -36,7 +36,7 @@ The context window never overflows. The user never perceives the existence of a 
 
 ## 3. How It Works
 
-MosaicCompress is a **pure, stateless function**. Given a message array, it partitions it into three zones by recency:
+MosaicMemoryCompress is a **pure, stateless function**. Given a message array, it partitions it into three zones by recency:
 
 ```
 Message array (R rounds total, from oldest to newest):
@@ -86,7 +86,7 @@ After (2 messages):
 ## 4. Configuration
 
 ```typescript
-interface MosaicConfig {
+interface MosaicMemoryConfig {
   lightStart: number;   // Rounds to keep raw. Default 30
   lightWindow: number;  // Anti-jitter for Light Compress. Default 10
   heavyStart: number;   // Rounds before this enter Heavy zone. Default 50
@@ -131,9 +131,9 @@ Total:      102 msgs (+ 1 system prompt if present)
 ## 7. Usage
 
 ```typescript
-import { mosaicCompress, type MosaicConfig, type Message } from 'mosaic-compress';
+import { mosaicMemoryCompress, type MosaicMemoryConfig, type Message } from 'mosaic-memory-compress';
 
-const config: MosaicConfig = {
+const config: MosaicMemoryConfig = {
   lightStart: 30,
   lightWindow: 10,
   heavyStart: 50,
@@ -152,7 +152,7 @@ const config: MosaicConfig = {
 
 // Call on every user message
 const messages = loadConversationHistory();
-const compressed = await mosaicCompress(messages, config);
+const compressed = await mosaicMemoryCompress(messages, config);
 // compressed is now ready to pass to your main LLM
 ```
 
@@ -161,7 +161,7 @@ const compressed = await mosaicCompress(messages, config);
 ## 8. Formal Model and the Engineering Choice
 
 > This section is the **theoretical foundation** of the algorithm, not an
-> implementation plan. It explains why MosaicCompress uses two levels
+> implementation plan. It explains why MosaicMemoryCompress uses two levels
 > (Light + Heavy) and why Heavy's recursive merge is mathematically sound.
 > The exact multi-level model described below is deliberately NOT
 > implemented — see 10.3 for the engineering rationale.

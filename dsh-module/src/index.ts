@@ -1,5 +1,5 @@
 /**
- * MosaicCompactionEngine — natural forgetting-curve compaction for DSH.
+ * MosaicMemoryCompactionEngine — natural forgetting-curve compaction for DSH.
  *
  * Prototype: subclasses BasicCompactionEngine so the official durable
  * transaction (locking, compaction/start|end markers, replay-stability
@@ -46,7 +46,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { zoneBoundaries } from './zones.ts'
 
 /** Zone thresholds in memory-round (user-message) units. */
-export interface MosaicConfig {
+export interface MosaicMemoryConfig {
   /** Most recent N memory rounds kept raw (default 30). */
   lightStart: number
   /** Anti-jitter: run compression every N rounds (default 10). */
@@ -102,7 +102,7 @@ survive forgetting.
 4. Preserve the original language of the input. Keep it terse.`
 
 /** Defaults mirror the library's DEFAULT_CONFIG. */
-const DEFAULTS: Required<MosaicConfig> = {
+const DEFAULTS: Required<MosaicMemoryConfig> = {
   lightStart: 30,
   lightWindow: 10,
   heavyStart: 50,
@@ -144,10 +144,10 @@ function isUserRound(message: Message): boolean {
   return message.role === 'user' && message.source.kind === 'user'
 }
 
-export class MosaicCompactionEngine extends BasicCompactionEngine {
+export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
   static inject = ['llm', 'tokenMeter', 'sessions']
 
-  private readonly mosaic: Required<MosaicConfig>
+  private readonly mosaic: Required<MosaicMemoryConfig>
 
   /**
    * Surface seqs already light-distilled by an earlier trigger. Incremental
@@ -184,8 +184,8 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
   private readonly roundCounts = new Map<string, number>()
   private readonly dirtySessions = new Set<string>()
 
-  constructor(ctx: Context, config: Partial<MosaicConfig> = {}) {
-    const mosaic: Required<MosaicConfig> = { ...DEFAULTS, ...config }
+  constructor(ctx: Context, config: Partial<MosaicMemoryConfig> = {}) {
+    const mosaic: Required<MosaicMemoryConfig> = { ...DEFAULTS, ...config }
     if (mosaic.lightStart < 0 || mosaic.lightWindow <= 0
       || mosaic.heavyStart <= mosaic.lightStart || mosaic.heavyWindow <= 0) {
       throw new TypeError('mosaic: invalid zones (need 0 ≤ lightStart < heavyStart, windows > 0)')
@@ -207,7 +207,7 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
         this.dirtySessions.add(session.id)
       }
     })
-    console.log('[mosaic-compact] engine constructed (lightStart=' + mosaic.lightStart
+    console.log('[mosaic-memory-compact] engine constructed (lightStart=' + mosaic.lightStart
       + ', heavyStart=' + mosaic.heavyStart + ')')
   }
 
@@ -467,7 +467,7 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
     const assembler = new BlockAssembler()
     const instruction = createUserMessage({
       content: [{ type: 'text', text: HEAVY_INSTRUCTION }],
-      source: { kind: 'plugin', plugin: 'dsh-mosaic-compress' },
+      source: { kind: 'plugin', plugin: 'dsh-mosaic-memory-compress' },
     })
     const options: import('@deepseek-ai/dsh-llm').GenerateOptions = {
       provider: target.provider,
@@ -499,9 +499,9 @@ export class MosaicCompactionEngine extends BasicCompactionEngine {
 }
 
 /** Cordis plugin entry. */
-export function apply(ctx: Context, config: Partial<MosaicConfig> = {}): void {
-  console.log('[mosaic-compact] apply() called')
-  ctx.plugin(MosaicCompactionEngine, config)
+export function apply(ctx: Context, config: Partial<MosaicMemoryConfig> = {}): void {
+  console.log('[mosaic-memory-compact] apply() called')
+  ctx.plugin(MosaicMemoryCompactionEngine, config)
 }
 
-export default MosaicCompactionEngine
+export default MosaicMemoryCompactionEngine

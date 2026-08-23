@@ -1,13 +1,13 @@
-# MosaicCompress
+# MosaicMemoryCompress
 
 **Stateless dialogue compression based on natural forgetting curve.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](https://www.typescriptlang.org)
-[![GitHub stars](https://img.shields.io/github/stars/TuringCorp-net/mosaic_compress)](https://github.com/TuringCorp-net/mosaic_compress/stargazers)
-[![npm](https://img.shields.io/npm/v/mosaic-compress)](https://www.npmjs.com/package/mosaic-compress)
+[![GitHub stars](https://img.shields.io/github/stars/TuringCorp-net/mosaic-memory-compress)](https://github.com/TuringCorp-net/mosaic-memory-compress/stargazers)
+[![npm](https://img.shields.io/npm/v/mosaic-memory-compress)](https://www.npmjs.com/package/mosaic-memory-compress)
 
-LLM conversations grow linearly. MosaicCompress keeps them bounded — automatically, invisibly, and without the user ever knowing what a "Session" is.
+LLM conversations grow linearly. MosaicMemoryCompress keeps them bounded — automatically, invisibly, and without the user ever knowing what a "Session" is.
 
 ## How It Works
 
@@ -36,7 +36,7 @@ structurally it is *amnesia followed by reading a diary*:
 - **Invisible loss.** The next model cannot know what the brief omitted, so it
   cannot compensate.
 
-MosaicCompress models the opposite: biological forgetting. A human does not
+MosaicMemoryCompress models the opposite: biological forgetting. A human does not
 remember round 3 of a 300-round conversation — they keep the lesson, the
 rules, the relationship. The algorithm reproduces that curve inside one
 message array:
@@ -53,7 +53,7 @@ memory; the raw zone is the vivid present. Loss is **visible**: the zone
 structure tells the model what it no longer knows, so it can fetch detail
 from shadowed storage on demand.
 
-| | Threshold summarization (industry) | MosaicCompress |
+| | Threshold summarization (industry) | MosaicMemoryCompress |
 |---|---|---|
 | Metaphor | amnesia + diary | continuous vivid memory |
 | Continuity | resets on every compaction | never resets |
@@ -62,7 +62,7 @@ from shadowed storage on demand.
 | Purpose | portable handover brief | unbounded human–AI dialogue |
 
 The two philosophies complement each other: a handover brief serves cold
-starts and long pauses; MosaicCompress serves *staying in the conversation*.
+starts and long pauses; MosaicMemoryCompress serves *staying in the conversation*.
 Combined with a durable host-side store (e.g. a MEMORY.md file), human and AI
 keep talking under the same forgetting curve indefinitely. See
 [docs/design.md](docs/design.md) §8/§10 for the formal position-is-age model
@@ -71,13 +71,13 @@ behind this design.
 ## Quick Start
 
 ```bash
-npm install mosaic-compress
+npm install mosaic-memory-compress
 ```
 
 ```typescript
-import { mosaicCompress, type MosaicConfig } from 'mosaic-compress';
+import { mosaicMemoryCompress, type MosaicMemoryConfig } from 'mosaic-memory-compress';
 
-const config: MosaicConfig = {
+const config: MosaicMemoryConfig = {
   lightStart: 30,    // keep 30 most recent rounds raw
   lightWindow: 10,   // compress every 10 rounds
   heavyStart: 50,    // rounds before this get heavy compression
@@ -97,7 +97,7 @@ const config: MosaicConfig = {
 
 // Call every turn — zero cost below threshold; structural light is millisecond-fast,
 // Heavy folds take ~1-2s (one LLM summary call)
-const compressed = await mosaicCompress(messages, config);
+const compressed = await mosaicMemoryCompress(messages, config);
 ```
 
 ## Features
@@ -111,15 +111,15 @@ const compressed = await mosaicCompress(messages, config);
 
 ## API
 
-### `mosaicCompress(messages, config)`
+### `mosaicMemoryCompress(messages, config)`
 
 | Param | Type | Description |
 |-------|------|-------------|
 | `messages` | `Message[]` | Full message array. System prompt at `[0]` is preserved as-is. |
-| `config` | `MosaicConfig` | Compression config (see below). |
+| `config` | `MosaicMemoryConfig` | Compression config (see below). |
 | **Returns** | `Promise<Message[]>` | Compressed message array. |
 
-### `MosaicConfig`
+### `MosaicMemoryConfig`
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -135,9 +135,9 @@ const compressed = await mosaicCompress(messages, config);
 Prefer starting from the exported defaults and overriding only what you need:
 
 ```typescript
-import { mosaicCompress, DEFAULT_CONFIG, type MosaicConfig } from 'mosaic-compress';
+import { mosaicMemoryCompress, DEFAULT_CONFIG, type MosaicMemoryConfig } from 'mosaic-memory-compress';
 
-const config: MosaicConfig = { ...DEFAULT_CONFIG, callLLM: async (sys, user) => { /* ... */ } };
+const config: MosaicMemoryConfig = { ...DEFAULT_CONFIG, callLLM: async (sys, user) => { /* ... */ } };
 ```
 
 All numeric fields must be positive integers (windows) / non-negative integers (starts),
@@ -160,7 +160,7 @@ Read the [full design document (English)](docs/design.md) or [中文设计文档
 
 ## Architecture Boundaries
 
-MosaicCompress is intentionally **stateless and lossy**:
+MosaicMemoryCompress is intentionally **stateless and lossy**:
 
 - **Durable storage is the host's responsibility.** The library compresses
   the message array in place and never persists original payloads. Hosts
@@ -175,7 +175,7 @@ MosaicCompress is intentionally **stateless and lossy**:
 
 ## Integration Notes
 
-MosaicCompress is host-agnostic and works wherever a `callLLM` function
+MosaicMemoryCompress is host-agnostic and works wherever a `callLLM` function
 exists. Its primary integration reference is **DeepSeek Harness (DSH)**
 ([deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
 — everything is a plugin), whose task-level compaction / output retention /
@@ -197,7 +197,7 @@ See the [Roadmap](docs/ROADMAP.md) for upcoming work.
 A deterministic simulation (zero LLM cost, reproducible) runs the real
 algorithm with a rule-based pseudo-LLM. Latest sweep (default parameters):
 
-![Context growth: uncompressed vs MosaicCompress (log scale)](benchmark/chart.svg)
+![Context growth: uncompressed vs MosaicMemoryCompress (log scale)](benchmark/chart.svg)
 
 | Rounds | msgs in | msgs out | tokens in | tokens out | ratio | facts kept |
 |---|---:|---:|---:|---:|---:|---:|

@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { Session } from '@deepseek-ai/dsh-session'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { deriveEventMessage } from '@deepseek-ai/dsh-session'
-import { MosaicCompactionEngine } from '../src/index.ts'
+import { MosaicMemoryCompactionEngine } from '../src/index.ts'
 
 function seedSession(rounds: number): Session {
   const t0 = 1786000000000
@@ -55,7 +55,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
 // 1) below threshold → null (zero cost)
 {
   const session = seedSession(20)
-  const engine = new MosaicCompactionEngine(mockCtx() as never, {})
+  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, {})
   const agent = { session, options: { provider: 'mock', model: 'mock' } }
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.equal(result, null)
@@ -65,7 +65,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
 // 2) off-window (userCount 25) → null
 {
   const session = seedSession(25)
-  const engine = new MosaicCompactionEngine(mockCtx() as never, {})
+  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, {})
   const agent = { session, options: { provider: 'mock', model: 'mock' } }
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.equal(result, null)
@@ -74,7 +74,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
 // 3) 60 rounds: structural light (text verbatim) + heavy fold, raw untouched
 {
   const session = seedSession(60)
-  const engine = new MosaicCompactionEngine(mockCtx() as never, {})
+  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, {})
   const agent = { session, options: { provider: 'mock', model: 'mock' } }
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.notEqual(result, null)
@@ -100,7 +100,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
 // 4) structural light is pure (no LLM involvement): heavy LLM failure still completes
 {
   const session = seedSession(60)
-  const engine = new MosaicCompactionEngine(mockCtx({ failLight: true }) as never, {})
+  const engine = new MosaicMemoryCompactionEngine(mockCtx({ failLight: true }) as never, {})
   const agent = { session, options: { provider: 'mock', model: 'mock' } }
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.notEqual(result, null)

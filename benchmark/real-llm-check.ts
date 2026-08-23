@@ -1,7 +1,7 @@
 // M3 layer-3: real-LLM spot check.
-// Runs the REAL mosaicCompress with the REAL DeepSeek V4 Flash as callLLM,
+// Runs the REAL mosaicMemoryCompress with the REAL DeepSeek V4 Flash as callLLM,
 // on a 100-round synthetic conversation with 20 planted facts.
-import { mosaicCompress, type MosaicConfig, type Message } from '../src/index.ts';
+import { mosaicMemoryCompress, type MosaicMemoryConfig, type Message } from '../src/index.ts';
 import { readFileSync } from 'node:fs';
 
 // ---- DeepSeek API client (key read from DSH credentials, never printed) ----
@@ -104,14 +104,14 @@ async function main(): Promise<void> {
   const rawFacts = [...FACTS.entries()];
   const rawTok = totalTokens(raw);
 
-  const config: MosaicConfig = {
+  const config: MosaicMemoryConfig = {
     lightStart: 30, lightWindow: 10, heavyStart: 50, heavyWindow: 10,
     callLLM: callDeepSeek,
   };
 
   console.log('原始对话: rounds=100 msgs=' + raw.length + ' estTokens=' + rawTok.toLocaleString() + ' facts=' + rawFacts.length);
   const t0 = Date.now();
-  const out = await mosaicCompress(raw, config);
+  const out = await mosaicMemoryCompress(raw, config);
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
   const outTok = totalTokens(out);
 

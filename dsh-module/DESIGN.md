@@ -1,6 +1,6 @@
-# MosaicCompress for DeepSeek Harness — System Design
+# MosaicMemoryCompress for DeepSeek Harness — System Design
 
-> MosaicCompress brings its natural forgetting-curve compression to DeepSeek
+> MosaicMemoryCompress brings its natural forgetting-curve compression to DeepSeek
 > Harness (DSH) as a pure plugin backend — **zero source changes to DSH**.
 > 中文版：DESIGN.cn.md
 
@@ -120,7 +120,7 @@ a run. Returning `null` means nothing happens this step — the zero-cost path.
 
 ## 4. DSH extension points
 
-- `CompactionEngine` seam: `MosaicCompactionEngine extends
+- `CompactionEngine` seam: `MosaicMemoryCompactionEngine extends
   BasicCompactionEngine`, overriding `compactIfNeeded` (trigger + zone
   passes) and `summarize` (heavy instruction). The official transaction
   machinery stays untouched.
@@ -135,8 +135,8 @@ a run. Returning `null` means nothing happens this step — the zero-cost path.
 - id: compaction-basic
   disabled: true          # one ctx.compaction backend at a time
 
-- id: mosaic-compact
-  name: '@turingcorp/dsh-mosaic-compress'
+- id: mosaic-memory-compact
+  name: '@turingcorp/dsh-mosaic-memory-compress'
   config:
     lightStart: 30
     lightWindow: 10

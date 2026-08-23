@@ -1,6 +1,6 @@
-# MosaicCompress 集成 DeepSeek Harness — 系统设计（中文版）
+# MosaicMemoryCompress 集成 DeepSeek Harness — 系统设计（中文版）
 
-> MosaicCompress 以纯插件后端的形式，把自然遗忘曲线压缩带进 DeepSeek Harness
+> MosaicMemoryCompress 以纯插件后端的形式，把自然遗忘曲线压缩带进 DeepSeek Harness
 > (DSH)——**对 DSH 源码零改动**。
 > English version: DESIGN.md
 > 集成踩坑实录（真实挂载验证经验）：INTEGRATION-NOTES.md
@@ -107,7 +107,7 @@ if (count % lightWindow !== 0) return null   // 不在窗口边界（防抖）
 
 ## 四、用到的 DSH 扩展点
 
-- **CompactionEngine seam**：`MosaicCompactionEngine extends BasicCompactionEngine`，
+- **CompactionEngine seam**：`MosaicMemoryCompactionEngine extends BasicCompactionEngine`，
   重写 `compactIfNeeded`（触发 + 分区通道）与 `summarize`（heavy 指令）。
   官方事务机制原样复用。
 - **`session.append` + `surfaceOp: replace`**：Light 的关键使能器
@@ -120,8 +120,8 @@ if (count % lightWindow !== 0) return null   // 不在窗口边界（防抖）
 - id: compaction-basic
   disabled: true          # 同一时刻只有一个 ctx.compaction 后端
 
-- id: mosaic-compact
-  name: '@turingcorp/dsh-mosaic-compress'
+- id: mosaic-memory-compact
+  name: '@turingcorp/dsh-mosaic-memory-compress'
   config:
     lightStart: 30
     lightWindow: 10

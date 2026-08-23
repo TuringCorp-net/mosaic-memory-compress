@@ -1,5 +1,5 @@
 {
-  "name": "mosaic-compress",
+  "name": "mosaic-memory-compress",
   "version": "1.0.0",
   "description": "Stateless dialogue compression that mimics human memory — forgetting-curve bounded context for LLM conversations. DeepSeek Harness (DSH) plugin backend included.",
   "type": "module",
@@ -44,7 +44,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/TuringCorp-net/mosaic_compress"
+    "url": "https://github.com/TuringCorp-net/mosaic-memory-compress"
   },
-  "homepage": "https://github.com/TuringCorp-net/mosaic_compress#readme"
+  "homepage": "https://github.com/TuringCorp-net/mosaic-memory-compress#readme"
 }

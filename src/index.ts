@@ -1,4 +1,4 @@
-// MosaicCompress — Stateless dialogue compression based on natural forgetting curve
+// MosaicMemoryCompress — Stateless dialogue compression based on natural forgetting curve
 //
 // A pure function that partitions a message array into three zones by recency:
 //   Heavy zone (oldest)  → compress ALL into 1 user + 1 assistant summary pair
@@ -36,7 +36,7 @@ export interface Message {
   _heavy?: boolean;
 }
 
-export interface MosaicConfig {
+export interface MosaicMemoryConfig {
   /** Number of most recent rounds kept raw (no compression). Default 30 */
   lightStart: number;
   /** Anti-jitter window for Light Compress. Default 10 */
@@ -71,7 +71,7 @@ export interface MosaicConfig {
    * Optional hook fired after each compression. Receives the original raw
    * payload that was compressed plus the compressed result, so hosts can
    * archive originals in their own persistence layer (database, log, or
-   * platform spill) and re-read them later on demand. MosaicCompress itself
+   * platform spill) and re-read them later on demand. MosaicMemoryCompress itself
    * stays stateless — this is the interface for the architecture boundary,
    * not built-in storage. Errors thrown by the callback are logged and do
    * NOT break the compression flow.
@@ -91,7 +91,7 @@ export interface CompressEvent {
   compressed: Message[];
 }
 
-export const DEFAULT_CONFIG: Omit<MosaicConfig, 'callLLM'> = {
+export const DEFAULT_CONFIG: Omit<MosaicMemoryConfig, 'callLLM'> = {
   lightStart: 30,
   lightWindow: 10,
   heavyStart: 50,
@@ -103,25 +103,25 @@ export const DEFAULT_CONFIG: Omit<MosaicConfig, 'callLLM'> = {
  * Throws a clear TypeError instead of silently producing NaN or
  * nonsensical zone boundaries.
  */
-function validateConfig(config: MosaicConfig): void {
+function validateConfig(config: MosaicMemoryConfig): void {
   if (!Number.isInteger(config.lightStart) || config.lightStart < 0) {
     throw new TypeError(
-      `[mosaic_compress] lightStart must be a non-negative integer, got ${config.lightStart}`,
+      `[mosaic-memory-compress] lightStart must be a non-negative integer, got ${config.lightStart}`,
     );
   }
   if (!Number.isInteger(config.lightWindow) || config.lightWindow <= 0) {
     throw new TypeError(
-      `[mosaic_compress] lightWindow must be a positive integer, got ${config.lightWindow}`,
+      `[mosaic-memory-compress] lightWindow must be a positive integer, got ${config.lightWindow}`,
     );
   }
   if (!Number.isInteger(config.heavyWindow) || config.heavyWindow <= 0) {
     throw new TypeError(
-      `[mosaic_compress] heavyWindow must be a positive integer, got ${config.heavyWindow}`,
+      `[mosaic-memory-compress] heavyWindow must be a positive integer, got ${config.heavyWindow}`,
     );
   }
   if (!Number.isInteger(config.heavyStart) || config.heavyStart <= config.lightStart) {
     throw new TypeError(
-      `[mosaic_compress] heavyStart (${config.heavyStart}) must be an integer greater than lightStart (${config.lightStart})`,
+      `[mosaic-memory-compress] heavyStart (${config.heavyStart}) must be an integer greater than lightStart (${config.lightStart})`,
     );
   }
 }
@@ -131,7 +131,7 @@ function validateConfig(config: MosaicConfig): void {
 // ============================================================
 
 /**
- * MosaicCompress — stateless dialogue compression.
+ * MosaicMemoryCompress — stateless dialogue compression.
  *
  * - Below lightStart rounds → zero-cost, returns immediately
  * - At window boundaries → Light Compress on Light zone, Heavy Compress on Heavy zone
@@ -141,9 +141,9 @@ function validateConfig(config: MosaicConfig): void {
  * @param config   - Compression config (must include callLLM)
  * @returns Compressed message array (system prompt unchanged)
  */
-export async function mosaicCompress(
+export async function mosaicMemoryCompress(
   messages: Message[],
-  config: MosaicConfig,
+  config: MosaicMemoryConfig,
 ): Promise<Message[]> {
   validateConfig(config);
 
@@ -206,7 +206,7 @@ async function applyLightCompress(
   heavyEnd: number,
   lightEnd: number,
   round: number,
-  config: MosaicConfig,
+  config: MosaicMemoryConfig,
 ): Promise<Message[]> {
   const startIdx = heavyEnd > 0 ? roundStarts[heavyEnd] : 0;
   const endIdx = lightEnd < roundStarts.length ? roundStarts[lightEnd] : history.length;
@@ -282,7 +282,7 @@ function truncateToolResult(text: string): string {
 
 async function runLightCompressLLM(
   messages: Message[],
-  _config: MosaicConfig,
+  _config: MosaicMemoryConfig,
 ): Promise<Message[]> {
   return messages.map((m) => {
     if (m._distilled) return m
@@ -316,7 +316,7 @@ async function applyHeavyCompress(
   roundStarts: number[],
   heavyEnd: number,
   round: number,
-  config: MosaicConfig,
+  config: MosaicMemoryConfig,
 ): Promise<Message[]> {
   const endIdx = heavyEnd < roundStarts.length ? roundStarts[heavyEnd] : history.length;
   const target = history.slice(0, endIdx);
@@ -335,18 +335,18 @@ async function applyHeavyCompress(
 }
 
 /** Fires the optional onCompress hook; callback errors never break the flow. */
-async function emitCompressEvent(config: MosaicConfig, event: CompressEvent): Promise<void> {
+async function emitCompressEvent(config: MosaicMemoryConfig, event: CompressEvent): Promise<void> {
   if (!config.onCompress) return;
   try {
     await config.onCompress(event);
   } catch (err) {
-    console.error('[mosaic_compress] onCompress callback failed:', (err as Error).message);
+    console.error('[mosaic-memory-compress] onCompress callback failed:', (err as Error).message);
   }
 }
 
 async function runHeavyCompressLLM(
   messages: Message[],
-  config: MosaicConfig,
+  config: MosaicMemoryConfig,
 ): Promise<Message[]> {
   const inputText = messages.map((m, i) => {
     const roleLabel = m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : m.role;
@@ -354,7 +354,7 @@ async function runHeavyCompressLLM(
   }).join('\n\n');
 
   if (!config.callLLM) {
-    throw new Error('[mosaic_compress] heavy compression requires callLLM');
+    throw new Error('[mosaic-memory-compress] heavy compression requires callLLM');
   }
   const systemPrompt = `You are a dialogue compressor. Compress the conversation below into exactly 2 messages (a summary pair). Preserve the original language of the input.
 
@@ -374,7 +374,7 @@ Output ONLY a JSON array (no other text):
     const content = await config.callLLM(systemPrompt, inputText);
     return parseHeavyResult(content);
   } catch (err) {
-    console.error('[mosaic_compress] Heavy Compress LLM call failed:', (err as Error).message);
+    console.error('[mosaic-memory-compress] Heavy Compress LLM call failed:', (err as Error).message);
     return [
       { role: 'user', content: '[Compression failed] Conversation continues.' },
       { role: 'assistant', content: '[Acknowledged] Issue does not affect the conversation.' },
