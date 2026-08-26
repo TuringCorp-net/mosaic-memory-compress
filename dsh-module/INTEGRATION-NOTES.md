@@ -1,197 +1,214 @@
-# DSH 集成踩坑实录（Integration Notes）
+# DSH Integration Notes
 
-> 2026-08-16 真实挂载验证过程中的深层发现。每个坑：现象 → 根因 → 解法。
-> 对任何 DSH 插件开发者都有参考价值；主设计见 DESIGN.cn.md。
+> Deep findings from real mount verification (2026-08-16 onward). Each pitfall:
+> symptom → root cause → fix. Valuable for any DSH plugin developer.
 
-## 1. 本地路径插件必须用 CJS（.cjs），ESM .js 会静默不加载
+## 1. Local-path plugins must be CJS (.cjs); ESM .js silently does not load
 
-**现象**：cordis.patch.yml 的 insert 条目 name 指向 ESM 构建产物
-（dist/index.js）时，重启后插件**没有任何加载迹象**——无报错、无日志、
-服务不注册。同样的 insert 机制下 boot-restore（index.cjs）正常工作。
+**Symptom**: pointing a cordis.patch.yml insert entry at an ESM build artifact
+(dist/index.js) produced no load evidence after restart — no error, no log, no
+service registration — while a .cjs plugin (boot-restore/index.cjs) worked.
 
-**根因**：DSH 的 cordis loader 对本地路径插件走 CJS 加载路径；ESM 产物
-要么被跳过要么加载失败被静默。Node 22 的 require(ESM) 能工作，但 loader
-的实际路径不接受。
+**Root cause**: the DSH cordis loader takes the CJS loading path for local
+plugins; ESM artifacts are skipped or fail silently. Node 22 require(ESM) works,
+but the loader path does not accept it.
 
-**解法**：tsup 双格式输出（format: ['esm', 'cjs']），patch name 指向
-dist/index.cjs。立即生效。
+**Fix**: dual-format build (tsup format: ['esm', 'cjs']), patch name points at
+dist/index.cjs. Immediate effect.
 
-**教训**：修改插件后**必须加运行期诊断再验证**——插件入口
-console.log 一行，重启后查 journal（systemd journal 是唯一可靠通道）。
-lsof 不可靠：模块加载完成后文件句柄即关闭，查不到。
+**Lesson**: after touching a plugin, add runtime diagnostics before verifying —
+one console.log at the plugin entry, then check the systemd journal (the only
+reliable channel). lsof is not: the file handle closes once the module is loaded.
 
-## 2. 计数口径：只有 source.kind === 'user' 才是"一轮"
+## 2. Round counting: only source.kind === 'user' is one round
 
-**现象**：宽松口径（role==='user' 且非 tool）数出 159 轮，而真实用户
-消息只有 80 条。
+**Symptom**: a loose rule (role==='user' and not tool) counted 159 rounds while
+real user messages were 80.
 
-**根因**：真实 DSH 会话里系统注入消息（runtime context、time-context、
-AGENTS.md 等，source.kind='plugin'）数量巨大——每轮 1-2 条，长期会话
-中与真实消息几乎 1:1。加上工具结果（'tool'）与官方 checkpoint
-（'plugin' + plugin:'compact'），宽松口径严重偏斜。
+**Root cause**: real DSH sessions inject many system messages (runtime context,
+time-context, AGENTS.md — source.kind='plugin'), 1-2 per round, nearly 1:1 with
+real messages in long sessions. Tool results ('tool') and official checkpoints
+('plugin' + plugin:'compact') skew loose counting further.
 
-**解法**：`isUserRound = role==='user' && source.kind==='user'`——
-与"用户发一条消息 = 一轮"的模型精确一致。checkpoint 用官方
-`isCompactCheckpointSource` 谓词排除（不要自己匹配字符串）。
+**Fix**: isUserRound = role==='user' && source.kind==='user' — exactly matching
+"one user message = one round". Exclude checkpoints with the official
+isCompactCheckpointSource predicate, never by string matching.
 
-## 3. 官方 checkpoint 会重置 surface 的"记忆年龄"
+## 3. An official checkpoint resets the surface "memory age"
 
-**现象**：会话被官方 /compact 过一次后，R 回到阈值之下，压缩不触发。
+**Symptom**: after an official /compact, R fell back under the threshold and
+compression stopped triggering.
 
-**根因**：官方 /compact 把早期全部消息 shadow 了，surface 上只剩
-checkpoint 节点 + 之后的真实消息。**计数基于 surface（模型可见面）**，
-被 shadow 的轮次不计入——surface 即记忆，官方压缩 = 记忆重置。
+**Root cause**: /compact shadows all early messages; the surface keeps only the
+checkpoint node plus later messages. Counting is surface-based (what the model
+sees) — shadowed rounds do not count. Surface is memory; official compaction is
+a memory reset.
 
-**结论**：这是**正确语义不是 bug**。官方压缩过的会话需要重新积累轮数
-才触发。若想立即验证，用临时小阈值；真实使用中无官方压缩时行为符合
-设计（50 轮以下不压）。
+**Conclusion**: correct semantics, not a bug. A compacted session needs to
+re-accumulate rounds before triggering. Use a temporary small threshold to verify
+quickly; without official compaction the behavior matches the design.
 
-## 4. 触发精确性：摘要节点污染轮计数
+## 4. Trigger exactness: summary nodes polluted round counting
 
-**现象**：heavy 折叠后，摘要对的 user 节点被 findRoundStarts 计入轮数，
-触发点漂移（69/78/87 而非 60/70/80）。
+**Symptom**: after a heavy fold, the summary-pair user node was counted by
+findRoundStarts and trigger points drifted (69/78/87 instead of 60/70/80).
 
-**解法**：主库 Message 加内部标记 `_heavy`（摘要对）与 `_distilled`
-（已脱水）。findRoundStarts 跳过 _heavy；light 只处理非 _distilled——
-**增量语义**：每次触发只蒸馏新滚入窗口（10 轮），重复触发绝不二次蒸馏。
-真实逐轮模拟：LLM 调用 1066 → 256（理论最优），触发点精确锁定窗口边界。
+**Fix**: internal markers `_heavy` (summary pairs) and `_distilled` (already
+dehydrated) on messages. findRoundStarts skips _heavy; light only processes
+non-_distilled — incremental semantics: each trigger handles only the newly
+rolled-in window, never re-distills. Rolling simulation: LLM calls 1066 → 256,
+triggers locked to window boundaries.
 
-## 5. 空/占位消息必须短路，否则模型返回空回复（历史）
+## 5. Empty/placeholder messages needed short-circuiting (historical)
 
-**历史记录**：LLM-light 时代（2026-08-16 前）16/1066 次 light 调用返回空
-（曾误报 35%）。解法 `lightSkipThreshold`（默认 160）短路空/占位消息。
-**2026-08-16 light 重构为结构化截断后该问题不再存在**（light 不调用
-LLM；短消息天然原样保留）。
+**History**: in the LLM-light era (before 2026-08-16), 16/1066 light calls
+returned empty (once misreported as 35%). The lightSkipThreshold (default 160)
+short-circuited them. **Obsolete since the structural-truncation redesign** —
+light no longer calls the LLM; short messages stay verbatim by construction.
 
-## 6. pre-step 事件的 agent 注入
+## 6. pre-step payload receives the agent via injection
 
-**现象**：排查 pre-step 钩子时发现 waterfall payload 只有
-{messages, turn, step, signal}，怀疑 agent 为 undefined。
+**Symptom**: the agent/pre-step waterfall payload looked like {messages, turn,
+step, signal} — no agent field.
 
-**根因**：agentEvents() 工厂（dsh-agent）的 fused() 包装给 payload 追加
-agent——钩子解构 { agent, signal } 成立。官方机制，无需处理。
+**Root cause**: the agentEvents() factory (dsh-agent) fuses the agent into the
+payload ({...payload, agent}); destructuring { agent, signal } works. Official
+mechanism — nothing to handle.
 
-## 7. 验证方法论：挂载会改写 agent 记忆
+## 7. Verification methodology: mounting rewrites agent memory
 
-- 挂载前：导出会话 + 三区快照 + 预期清单
-- 挂载后：journal 查加载诊断 → 会话日志查 compaction 事件与 surface 替换
-- shadow 语义保证原始事件永在日志，最坏情况可恢复
+- Before mount: export the session + three-zone snapshot + expected checklist
+- After mount: journal for load diagnostics → session log for compaction events
+  and surface replacements
+- Shadow semantics guarantee originals stay in the log; worst case is recoverable
 
-## 8. 其他确认过的点
+## 8. Other confirmed points
 
-- patch.yml 用 js-yaml JSON_SCHEMA 解析（+!!js 表达式）；insert 条目
-  支持 id/name/config，config 直接传给插件
-- 依赖版本：dsh-module 的 @deepseek-ai peerDeps 与 DSH 运行时
-  profiles/node_modules 同版本（0.1.0-rc.6）时兼容；双份 node_modules
-  的 cordis 靠全局 Symbol 品牌跨拷贝兼容
-- compaction-basic 在 web-app bundle 中已被官方禁用（host 层）——
-  preset 层是否挂载官方后端需按版本核对
+- patch.yml parses with js-yaml JSON_SCHEMA (+!!js expressions); insert entries
+  support id/name/config; config is passed straight to the plugin
+- Dependency versions: dsh-module @deepseek-ai peerDeps match the DSH runtime
+  profiles/node_modules (0.1.0-rc.6); two node_modules copies of cordis stay
+  compatible via global Symbol branding
+- compaction-basic is officially disabled in the web-app bundle (host plane) —
+  whether a preset layer mounts an official backend depends on the version
 
-## 9. O(n²) 事件查找：pre-step 实测 17.7 秒（已修复）
+## 9. O(n²) event lookup: pre-step measured 17.7s (fixed)
 
-**现象**：挂载后每次发消息前 GUI 无反应数秒；journal 显示
-`[mosaic] pre-step R=25 no-op (17730ms)`。
+**Symptom**: seconds of GUI silence before every message; journal showed
+`[mosaic] pre-step R=25 no-op (17730ms)`.
 
-**根因**：surfaceNodes() 对每个 surface 节点用 events.find(seq) 线性查找——
-80 轮对话产生 3.8 万条事件 × 675 个表面节点 = 2565 万次比较/每次 pre-step。
+**Root cause**: surfaceNodes() did a linear events.find(seq) per surface node —
+an 80-round conversation produces ~38k events × 675 surface nodes = 25.6M
+comparisons per pre-step.
 
-**解法**：Map 索引（O(n) 建索引 + O(1) 查找）→ 17730ms → 132ms。
+**Fix**: Map index (O(n) build + O(1) lookup) → 17730ms → 132ms.
 
-**教训**：真实会话的事件量是对话轮数的 ~500 倍（tool 调用、chunk、reasoning
-都算事件）——任何按 seq 的查找都必须索引，禁止线性 find。
+**Lesson**: real sessions produce ~500× events per round (tool calls, chunks,
+reasoning all count) — any seq lookup must be indexed, never linear find.
 
-## 10. 增量轮计数：O(1) no-op pre-step（2026-08-16 设计）
+## 10. Incremental round counting: O(1) no-op pre-step (2026-08-16)
 
-**问题**：即使 Map 索引，每次 pre-step 全量扫描仍是 O(n)，会话增长会退化
-（10 万事件 ≈ 400ms，100 万 ≈ 秒级）。
+**Problem**: even indexed, a full scan per pre-step is O(n) and degrades as the
+session grows (100k events ≈ 400ms, 1M ≈ seconds).
 
-**设计**（正确性由三条规则封闭）：
-- **增量维护**：监听 `session/event`（append-only 流）——真实用户消息
-  （source.kind==='user'）append 时计数 +1；
-- **1:1 替换不失效**：light 蒸馏（start===end 替换）保留 user source，
-  轮数不变，不标脏；
-- **范围折叠标脏**：任何 start!==end 的替换（heavy 折叠、官方 checkpoint、
-  第三方压缩）→ dirty → 下次 pre-step 全量对账。
-- **懒初始化**：新会话/重启后首次 pre-step 全量扫描一次；触发路径
-  （窗口边界）本来就全量算 zones，顺带校正。
+**Design** (correctness closed by three rules):
+- **Incremental maintenance**: listen to session/event (append-only stream) — a
+  real user message (source.kind==='user') increments the counter
+- **1:1 replacements do not invalidate**: light truncation (start===end) keeps
+  the user source; the count is unchanged, no dirty mark
+- **Range folds mark dirty**: any start!==end replacement (heavy fold, official
+  checkpoint, third-party) → dirty → next pre-step recomputes fully
+- **Lazy init**: first pre-step after restart scans once; the trigger path
+  recomputes zones anyway and re-syncs
 
-**实测**：no-op 124ms（初始化）→ **0ms**（增量）；journal R 与 surface
-全量计数逐轮对账一致。
+**Measured**: no-op 124ms (init) → 0ms (incremental); journal R reconciled
+against full surface counting round by round.
 
-## 11. pre-step 诊断日志（验证方法论）
+## 11. pre-step diagnostic logging (verification methodology)
 
-模块在 compactIfNeeded 记录一行 journal：
-`[mosaic] pre-step R=NN trigger=pressure no-op (Xms)` / TRIGGERED 变体
-（lightCalls/lightTokens/heavyFolded/耗时）。重启后 journal 是唯一可靠的
-验证通道（lsof 不可靠——模块加载后文件句柄关闭）。
+The module logs one journal line per compactIfNeeded:
+`[mosaic] pre-step R=NN trigger=pressure no-op (Xms)` / TRIGGERED variants
+(lightCalls/lightTokens/heavyFolded/elapsed). After a restart the journal is the
+only reliable verification channel (lsof is not — handles close after load).
 
-## 12. Light 重构：LLM 蒸馏 → 纯结构化截断（2026-08-16）
+## 12. Light redesign: LLM distillation → pure structural truncation (2026-08-16)
 
-**数据驱动决策**：真实 40 轮 surface 的 token 构成——reasoning 33% +
-tool-call arguments 33% + tool-result 24% + 注入 4% + **文本仅 5%**。
-LLM 蒸馏文本是"90% 成本打 10% 的靶"：254 次调用/12s/38 万 token 只换
-5.6% 净省。
+**Data-driven decision**: real 40-round surface token composition — reasoning
+33% + tool-call arguments 33% + tool results 24% + injections 4% + **text only
+~5%**. LLM-distilling text was "90% of the cost against 10% of the target": 254
+calls / 12s / 380k tokens for 5.6% net savings.
 
-**新方案（实测对比）**：结构化截断（reasoning 头尾 30、arguments JSON 壳
-120、结果头 30 尾 30、注入 30、文本不动）→ 46.1% 净省、零 LLM、毫秒级。
+**New scheme (measured)**: structural truncation (reasoning head+tail 30,
+arguments JSON shell with 120-char field truncation, results head 30 tail 30,
+injections 30, text untouched) → 46.1% net savings, zero LLM, milliseconds.
 
-**API 安全性全部实测**（DeepSeek 官方接口）：
-- reasoning_content 截断/删除 → 200 OK，回答正确（finish_reason=stop）
-- arguments 纯文本/JSON 壳截断 → 200 OK（只校验结构不校验内容）
-- tool_call_id 配对保留 → 无 400
+**API safety verified against the live DeepSeek API**:
+- reasoning_content truncated/removed → 200 OK, correct answers (finish=stop)
+- arguments plain-text or JSON-shell truncated → 200 OK (only structure is
+  validated, not content)
+- tool_call_id pairing preserved → no 400
 
-**对 DSH 的启示**：surface 的大头是结构化内容（reasoning/arguments/result），
-不是文本——任何上下文压缩都应先处理结构化负载。
+**Lesson for DSH**: surface bulk is structured content (reasoning/arguments/
+results), not text — context compression should handle structured payloads first.
 
-## 13. 挂载实测（2026-08-16，结构化 light 首次触发）
+## 13. Mount verification (2026-08-16, structural light first trigger)
 
-- 触发：窗口边界；556 条替换（assistant 237 / tool-result 217 / user 102）
-- 截断验证：reasoning 精确 61 字符（头 30+尾 30）；arguments 216/217 带截断
-  标记（JSON 壳保留）；tool-result 75 字符（头 30+尾 30）；user 文本零损失
-- shadow price：24.6 万 token 扣除；**上下文使用率 53% → 30%**
-- LLM 调用：0（对比 LLM 版：254 次/38 万 token/12.5s）
-- 已知：journal 的 TRIGGERED 行在重启后首次触发未落盘（systemd 缓冲疑云，
-  事件日志为准）；重启后 distilledSeqs 清空导致全量重截断一次（内存 Set，
-  可后续持久化）
+- Trigger at window boundary; 556 replacements (assistant 237 / tool-result 217 /
+  user 102)
+- Truncation verified: reasoning exactly 61 chars (30+30); arguments 216/217 with
+  markers (JSON shell kept); tool-result 75 chars (30+30); user text zero loss
+- Shadow price: 246k tokens deducted; **context usage 53% → 30%**
+- LLM calls: 0 (vs LLM era: 254 calls / 380k tokens / 12.5s)
+- Known: the TRIGGERED journal line was missing on the first post-restart
+  trigger (systemd buffering; the event log is authoritative); distilledSeqs is
+  in-memory, so one full re-truncation happens after restart (persist later if
+  needed)
 
-## 14. 缓存断点代价：持续压缩的成本模型（2026-08-16 实测）
+## 14. Cache-breakpoint cost: the cost model of continuous compaction (2026-08-16)
 
-**实测**：压缩当次请求缓存命中率 99.7% → 4.2%（29 万 token 整段 miss，
-30 倍价）；随后恢复 99.9%。会话成本约为无压缩的 10 倍（实测会话）。
+**Measured**: the compression request dropped cache hit rate 99.7% → 4.2%
+(290k tokens missed wholesale at 30× price), recovering to 99.9% immediately
+after. Session cost was ~10× a non-compressed session.
 
+**Mechanism**: DeepSeek automatic prefix caching matches from the head; any edit
+of sent history moves the breakpoint forward and everything after it misses
+(the raw zone is affected too — matching is continuous, not per-zone).
 
-**机制**：DeepSeek 自动前缀缓存按"从头逐条一致"匹配——任何对已发送
-历史的中间修改（替换/折叠）都使 breakpoint 前移，被修改点之后整段
-失效（raw 区同样受影响——前缀是连续匹配，不是按区匹配）。
+**Cost model (tunable)**: the tax ≈ surface×30/N per round amortized. N=10 is
+~10-15× the no-compression incremental tax; larger N (20/50/100) amortizes
+linearly. The balance point is set by cost sensitivity vs the need for unbounded
+dialogue — parameterized, not a structural dead end.
 
-**成本模型（可调）**：压缩税 ≈ surface×30/N 每轮摊薄。N=10 时约
-10-15 倍于无压缩的增量税；N 调大（20/50/100）税线性摊薄。平衡点由
-"成本敏感度 vs 无限对话需求"决定——参数化可调，非结构性死结。
+**Value comparison**: the tax buys bounded surface + unbounded dialogue; the
+official brief mode has zero tax but every reset makes the model a stranger.
+The core value (fresh recent memory + progressively fuzzier ancient memory —
+the biological forgetting curve) survives the tradeoff.
 
-**收益对照**：这笔税换来有界 surface + 无限永续对话；官方 brief 模式
-零税但每次重置变成失忆新人。马赛克记忆压缩的核心价值（鲜活近期记忆 +
-逐渐模糊的远古记忆 = 生物体记忆曲线）在权衡中被保留。
+**v2 direction**: reset-moment enhancement (ROADMAP M5) — inject refined recent
+rounds at new-session/brief moments; zero cache cost; philosophy preserved.
 
-**v2 方向**：重置时刻增强（ROADMAP M5）——新会话/brief 时刻注入精炼
-近期轮，缓存成本为零，哲学保留。
+**General lesson**: context-compression algorithms must put the cache-breakpoint
+cost into the cost model; on automatic-prefix-cache providers, in-place history
+edits need an explicit window/frequency tradeoff, not an assumed free lunch.
 
-**教训（通用）**：上下文压缩算法必须把"缓存断点代价"纳入成本模型；
-在自动前缀缓存 provider 上，中间修改历史的方案需要显式的窗口/频率
-权衡，而不是想当然的免费收益。
+## 15. Parameter finalization 10/30/30/30 + cost verification (2026-08-26)
 
-## 15. 参数定稿 10/30/30/30 + 成本验证（2026-08-26）
+**Finalized config**: lightStart=10, lightWindow=30, heavyStart=30, heavyWindow=30
+(three-tier memory: 10 vivid rounds + 20 dehydrating rounds + fold before round
+30; light/heavy windows strictly aligned so every cache miss does truncation
+and fold in one request).
 
-**定稿参数**：lightStart=10, lightWindow=30, heavyStart=30, heavyWindow=30
-（三层记忆：10 轮鲜活 + 20 轮脱水 + 30 轮前折叠；light/heavy 窗口严格对齐，
-每次缓存 miss 同时完成截断与折叠）。
+**Rolling simulation over a real 165-round conversation**:
+- heavy folds: 4 (rounds 60/90/120/150, exactly 30-round intervals)
+- cache misses: 5 (rounds 30/60/90/120/150; same-round light+heavy merges into
+  one request)
+- LLM calls: 4 (heavy only), each sending only the heavy zone (14-26K tokens vs
+  1.37M chars total — 50× smaller)
+- LLM cost: ~$0.057 for the whole run (assumed input $0.5/M + output $2/M) —
+  negligible
+- final: 46 user rounds / 16.6% character retention; estimated total cost
+  (cache tax included) ≈ 1.8× baseline
 
-**165 轮真实对话逐轮模拟实测**：
-- heavy 折叠 4 次（round 60/90/120/150，间隔精确 30 轮）
-- 缓存 miss 5 次（round 30/60/90/120/150，同轮 light+heavy 合并为 1 次请求）
-- LLM 调用 4 次（仅 heavy），每次只发送 heavy 区内容（14-26K tokens，
-  对比全量 137 万字符——差 50 倍）
-- LLM 成本合计 ~$0.057（165 轮，输入 $0.5/M + 输出 $2/M 假设）——可忽略
-- 最终 46 user 轮 / 16.6% 字符保留率；估算缓存税后总成本 ≈ 1.8 倍基线
-
-**关键认知**：heavy LLM 成本可忽略（$0.05 级）；成本大头是缓存 miss 税
-（surface×30/N），窗口 N 是唯一有效杠杆——30 轮对齐是最优平衡。
+**Key insight**: heavy LLM cost is negligible (cents); the cost driver is the
+cache-miss tax (surface×30/N), and the window N is the only effective lever —
+the 30-round alignment is the optimal balance.

@@ -2,7 +2,6 @@
 
 > MosaicMemoryCompress brings its natural forgetting-curve compression to DeepSeek
 > Harness (DSH) as a pure plugin backend — **zero source changes to DSH**.
-> 中文版：DESIGN.cn.md
 
 ## 1. Overview
 

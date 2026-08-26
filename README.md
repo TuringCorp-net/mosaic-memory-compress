@@ -156,7 +156,7 @@ interface Message {
 
 ## Design
 
-Read the [full design document (English)](docs/design.md) or [中文设计文档](docs/design.cn.md).
+Read the [full design document](docs/design.md).
 
 ## Architecture Boundaries
 
@@ -181,14 +181,14 @@ exists. Its primary integration reference is **DeepSeek Harness (DSH)**
 — everything is a plugin), whose task-level compaction / output retention /
 spill complement this library's message-level compression (roles and order
 preserved). A ready-to-use **DSH plugin backend** lives in
-[`dsh-module/`](dsh-module/DESIGN.cn.md) (design docs in EN/中文).
+[`dsh-module/`](dsh-module/DESIGN.md).
 
 Related:
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — the host platform
 - [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) — curated DSH plugin list
 - [awesome-deepseek-harness](https://github.com/0xsline/awesome-deepseek-harness) — DSH ecosystem list
-- [design docs (EN)](docs/design.md) / [设计文档（中文）](docs/design.cn.md) — theory and empirical case study
+- [design docs](docs/design.md) — theory and empirical case study
 
 See the [Roadmap](docs/ROADMAP.md) for upcoming work.
 
