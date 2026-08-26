@@ -104,7 +104,7 @@ async function run(): Promise<void> {
   console.log('║   MosaicMemoryCompress Unit Tests (Zero LLM)  ║');
   console.log('╚══════════════════════════════════════════╝');
 
-  const baseCfg = { ...DEFAULT_CONFIG, lightSkipThreshold: 0, callLLM: mockLight() };
+  const baseCfg = { lightStart: 30, lightWindow: 10, heavyStart: 50, heavyWindow: 10, callLLM: mockLight() };
 
   // ── 1 ──
   section('1. Below threshold (R=20 < lightStart=30) → immediate return');
@@ -234,7 +234,7 @@ async function run(): Promise<void> {
   // ── 13 ──
   section('13. Heavy anti-jitter: R=50, heavyWindow=7 → no Heavy');
   {
-    const cfg: MosaicMemoryConfig = { ...DEFAULT_CONFIG, heavyWindow: 7, callLLM: mockLight() };
+    const cfg: MosaicMemoryConfig = { lightStart: 30, lightWindow: 10, heavyStart: 50, heavyWindow: 7, callLLM: mockLight() };
     const res = await mosaicMemoryCompress(makeConv(50), cfg);
     checkEq('Only Light triggered', countMsgs(res), 100);
   }
@@ -433,7 +433,7 @@ run().catch(err => { console.error(err); (globalThis as any).process?.exit?.(1);
       }
       return msgs;
     };
-    const cfg = { ...DEFAULT_CONFIG, callLLM: async () => JSON.stringify([
+    const cfg = { lightStart: 30, lightWindow: 10, heavyStart: 50, heavyWindow: 10, callLLM: async () => JSON.stringify([
       { role: 'user', content: 'H-U' }, { role: 'assistant', content: 'H-A' }]) };
     const r40 = await mosaicMemoryCompress(mk(40), cfg);
     check('R=40 marked 20 messages distilled', r40.filter((m: any) => m._distilled === true).length === 20);
@@ -443,4 +443,12 @@ run().catch(err => { console.error(err); (globalThis as any).process?.exit?.(1);
     checkEq('R=60 count: 2 heavy + 40 light + 60 raw = 102 (excl. sys)', countMsgs(r60), 102);
     check('R=60 heavy summary flagged', r60[1]._heavy === true);
     check('R=60 distilled messages flagged', r60.some((m: any) => m._distilled === true));
+  }
+  // ── 25 ──
+  section('25. DEFAULT_CONFIG = 10/30/30/30 (2026-08-26 finalized)');
+  {
+    check('lightStart 10', DEFAULT_CONFIG.lightStart === 10);
+    check('lightWindow 30', DEFAULT_CONFIG.lightWindow === 30);
+    check('heavyStart 30', DEFAULT_CONFIG.heavyStart === 30);
+    check('heavyWindow 30', DEFAULT_CONFIG.heavyWindow === 30);
   }

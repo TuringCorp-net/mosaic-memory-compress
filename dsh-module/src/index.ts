@@ -63,8 +63,8 @@ export interface MosaicMemoryConfig {
 /** Light structural-truncation limits (mirror the library's light pass). */
 const LIGHT_REASON_KEEP = 30
 const LIGHT_ARG_FIELD_MAX = 120
-const LIGHT_RESULT_HEAD = 30
-const LIGHT_RESULT_TAIL = 30
+const LIGHT_RESULT_HEAD = 50
+const LIGHT_RESULT_TAIL = 50
 const LIGHT_INJECT_MAX = 30
 
 /** Truncate one tool-call arguments JSON, preserving the JSON shell. */
@@ -103,10 +103,10 @@ survive forgetting.
 
 /** Defaults mirror the library's DEFAULT_CONFIG. */
 const DEFAULTS: Required<MosaicMemoryConfig> = {
-  lightStart: 30,
-  lightWindow: 10,
-  heavyStart: 50,
-  heavyWindow: 10,
+  lightStart: 10,
+  lightWindow: 30,
+  heavyStart: 30,
+  heavyWindow: 30,
   maxTokens: 8192,
 }
 

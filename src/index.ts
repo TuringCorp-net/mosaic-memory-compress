@@ -37,13 +37,13 @@ export interface Message {
 }
 
 export interface MosaicMemoryConfig {
-  /** Number of most recent rounds kept raw (no compression). Default 30 */
+  /** Number of most recent rounds kept raw (no compression). Default 10 */
   lightStart: number;
-  /** Anti-jitter window for Light Compress. Default 10 */
+  /** Anti-jitter window for Light Compress. Default 30 (aligned with heavy) */
   lightWindow: number;
-  /** Rounds beyond this enter Heavy zone. Must be > lightStart. Default 50 */
+  /** Rounds beyond this enter Heavy zone. Must be > lightStart. Default 30 */
   heavyStart: number;
-  /** Anti-jitter window for Heavy Compress. Default 10 */
+  /** Anti-jitter window for Heavy Compress. Default 30 */
   heavyWindow: number;
 
 
@@ -92,10 +92,10 @@ export interface CompressEvent {
 }
 
 export const DEFAULT_CONFIG: Omit<MosaicMemoryConfig, 'callLLM'> = {
-  lightStart: 30,
-  lightWindow: 10,
-  heavyStart: 50,
-  heavyWindow: 10,
+  lightStart: 10,
+  lightWindow: 30,
+  heavyStart: 30,
+  heavyWindow: 30,
 };
 
 /**
@@ -237,15 +237,15 @@ async function applyLightCompress(
  * - tool_calls[*].function.arguments: JSON shell preserved, every string
  *   field truncated to 120 chars (API-verified safe; only structure is
  *   validated)
- * - tool messages (results): text head 30 + tail 30 (structure untouched)
+ * - tool messages (results): text head 50 + tail 50 (structure untouched)
  * - user/assistant text: UNTOUCHED — stays fresh for the Heavy fold
  *
  * Incremental semantics unchanged: _distilled marker, re-triggers skip.
  */
 const LIGHT_REASON_KEEP = 30
 const LIGHT_ARG_FIELD_MAX = 120
-const LIGHT_RESULT_HEAD = 30
-const LIGHT_RESULT_TAIL = 30
+const LIGHT_RESULT_HEAD = 50
+const LIGHT_RESULT_TAIL = 50
 
 /** Truncate one tool-call arguments JSON, preserving the JSON shell. */
 function truncateArguments(raw: string): string {

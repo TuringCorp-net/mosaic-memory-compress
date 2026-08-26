@@ -44,6 +44,9 @@ Message array (R rounds total, from oldest to newest):
 Round 1 ────→ Round (R-heavyStart)     │ Heavy zone → ALL → 2 msgs
 Round (R-heavyStart+1) → (R-lightStart) │ Light zone → structural truncation, count unchanged
 Round (R-lightStart+1) ──→ Round R      │ Raw zone  → keep as-is
+
+Default boundaries (2026-08-26): lightStart=10, heavyStart=30 — 10 vivid
+rounds, 20 dehydrating rounds, everything older folded.
 ```
 
 **Anti-jitter**: Compression only fires when `R % lightWindow == 0` (Light) or `R % heavyWindow == 0` (Heavy). Light compression is pure structural truncation (milliseconds, zero LLM); only Heavy folds make one LLM summary call (~1-2s) at heavy-window boundaries.
@@ -87,10 +90,10 @@ After (2 messages):
 
 ```typescript
 interface MosaicMemoryConfig {
-  lightStart: number;   // Rounds to keep raw. Default 30
-  lightWindow: number;  // Anti-jitter for Light Compress. Default 10
-  heavyStart: number;   // Rounds before this enter Heavy zone. Default 50
-  heavyWindow: number;  // Anti-jitter for Heavy Compress. Default 10
+  lightStart: number;   // Rounds to keep raw. Default 10
+  lightWindow: number;  // Anti-jitter for Light. Default 30 (aligned with heavy)
+  heavyStart: number;   // Rounds before this enter Heavy zone. Default 30
+  heavyWindow: number;  // Anti-jitter for Heavy. Default 30
   callLLM?: (systemPrompt: string, userInput: string) => Promise<string>; // Heavy only; omit for light-only usage
 }
 ```
@@ -99,17 +102,17 @@ interface MosaicMemoryConfig {
 
 ## 5. Steady-State Message Count
 
-With default parameters (`lightStart=30, lightWindow=10, heavyStart=50, heavyWindow=10`):
+With default parameters (`lightStart=10, lightWindow=30, heavyStart=30, heavyWindow=30`):
 
 ```
 Heavy zone: 2 msgs   (1 user summary + 1 assistant confirmation)
 Light zone: 40 msgs  (20 rounds × 2 — rounds R-heavyStart .. R-lightStart)
-Raw zone:   60 msgs  (30 rounds × 2 — the most recent lightStart rounds)
+Raw zone:   20 msgs  (10 rounds × 2 — the most recent lightStart rounds)
 ─────────────────
-Total:      102 msgs (+ 1 system prompt if present)
+Total:      62 msgs (31 user rounds) (+ 1 system prompt if present)
 ```
 
-**This count is CONSTANT regardless of how many rounds the conversation has.** Whether at round 60 or round 15,000, the message count is always 102 for pure two-message rounds — in general `2 + heavyStart × messagesPerRound`. The exact value depends on the average number of messages per round (tool-call rounds add an assistant + tool message), but it never grows with R.
+**This count is CONSTANT regardless of how many rounds the conversation has.** Whether at round 60 or round 15,000, the message count is always 62 (31 user rounds) for pure two-message rounds — in general `2 + heavyStart × messagesPerRound`. The exact value depends on the average number of messages per round (tool-call rounds add an assistant + tool message), but it never grows with R.
 
 ---
 
@@ -134,10 +137,10 @@ Total:      102 msgs (+ 1 system prompt if present)
 import { mosaicMemoryCompress, type MosaicMemoryConfig, type Message } from 'mosaic-memory-compress';
 
 const config: MosaicMemoryConfig = {
-  lightStart: 30,
-  lightWindow: 10,
-  heavyStart: 50,
-  heavyWindow: 10,
+  lightStart: 10,
+  lightWindow: 30,
+  heavyStart: 30,
+  heavyWindow: 30,
   callLLM: async (systemPrompt, userInput) => {
     // Wire to your own LLM provider
     const response = await yourLLM.chat({

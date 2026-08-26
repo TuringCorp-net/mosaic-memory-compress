@@ -138,10 +138,10 @@ a run. Returning `null` means nothing happens this step — the zero-cost path.
 - id: mosaic-memory-compact
   name: '@turingcorp/dsh-mosaic-memory-compress'
   config:
-    lightStart: 30
-    lightWindow: 10
-    heavyStart: 50
-    heavyWindow: 10
+    lightStart: 10
+    lightWindow: 30
+    heavyStart: 30
+    heavyWindow: 30
     maxTokens: 8192
 ```
 

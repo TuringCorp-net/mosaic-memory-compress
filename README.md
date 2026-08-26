@@ -14,12 +14,12 @@ LLM conversations grow linearly. MosaicMemoryCompress keeps them bounded — aut
 ```
 Your message array (R rounds, oldest → newest):
 
-Round 1 ────→ Round (R-50)   │ Heavy zone → ALL → 2 msgs
-Round (R-49) → Round (R-30)  │ Light zone → structural truncation, count unchanged
-Round (R-29) ──→ Round R     │ Raw zone  → keep as-is
+Round 1 ────→ Round (R-30)   │ Heavy zone → ALL → 2 msgs
+Round (R-29) → Round (R-10)  │ Light zone → structural truncation, count unchanged
+Round (R-9) ────→ Round R    │ Raw zone  → keep as-is
 ```
 
-**Steady state: constant message count** — `2 + heavyStart × (messages per round)`, e.g. 102 messages for pure two-message rounds, whether at round 60 or round 15,000 (higher, but still constant, when tool-call rounds add messages). The compression ratio approaches 100%.
+**Steady state: constant message count** — `2 + heavyStart × (messages per round)`, e.g. 62 messages (31 user rounds) for pure two-message rounds, whether at round 60 or round 15,000 (higher, but still constant, when tool-call rounds add messages). The compression ratio approaches 100%.
 
 ## Philosophy: Alive Memory, Not a Handover Brief
 
@@ -78,10 +78,10 @@ npm install mosaic-memory-compress
 import { mosaicMemoryCompress, type MosaicMemoryConfig } from 'mosaic-memory-compress';
 
 const config: MosaicMemoryConfig = {
-  lightStart: 30,    // keep 30 most recent rounds raw
-  lightWindow: 10,   // compress every 10 rounds
-  heavyStart: 50,    // rounds before this get heavy compression
-  heavyWindow: 10,   // same cadence as light
+  lightStart: 10,    // keep 10 most recent rounds raw (vivid)
+  lightWindow: 30,   // compress every 30 rounds (aligned with heavy)
+  heavyStart: 30,    // rounds before this enter the heavy zone
+  heavyWindow: 30,   // heavy fold cadence (30-round interval)
   callLLM: async (systemPrompt, userInput) => {
     // Wire to OpenAI, Anthropic, or any LLM provider
     const res = await openai.chat.completions.create({

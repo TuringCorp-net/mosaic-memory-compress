@@ -79,22 +79,23 @@ function mockCtx(opts?: { failLight?: boolean }) {
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.notEqual(result, null)
   const nodes = session.surface.nodes
-  assert.equal(nodes.length, 51) // 60 - 10 + 1
+  assert.equal(nodes.length, 31) // 60 - 30 + 1 (heavyStart=30 default)
 
   const texts = nodes.map(seq => messageOf(session, seq))
-  // light zone (20 messages, rounds 10..29): user TEXT stays verbatim
+  // light zone (30 messages, rounds 0..29): user TEXT stays verbatim
   // (structural light never rewrites text)
-  const lightVerbatim = texts.filter(t => t.startsWith('user round 1') || t.startsWith('user round 2'))
+  // light zone = rounds 30..49 (20 user msgs, text verbatim)
+  const lightVerbatim = texts.filter(t => t.startsWith('user round 3') || t.startsWith('user round 4'))
   assert.equal(lightVerbatim.length, 20)
-  // raw zone (30 messages, rounds 30..59) verbatim
-  const raw = texts.filter(t => t.startsWith('user round 3') || t.startsWith('user round 4') || t.startsWith('user round 5'))
-  assert.equal(raw.length, 30)
+  // raw zone = rounds 50..59 (10 user msgs) verbatim
+  const raw = texts.filter(t => t.startsWith('user round 5'))
+  assert.equal(raw.length, 10)
   // heavy checkpoint present (official preamble + <compacted-summary> framing)
   assert.ok(texts.some(t => t.includes('## HEAVY CHECKPOINT')))
   // markers present
   const types = session.events.map(e => e.type)
   assert.ok(types.includes('compaction/start') && types.includes('compaction/summary') && types.includes('compaction/end'))
-  console.log('3) 60 rounds: light text verbatim (' + lightVerbatim.length + '), raw (' + raw.length + '), heavy fold 60→51 PASS')
+  console.log('3) 60 rounds: light text verbatim (' + lightVerbatim.length + '), raw (' + raw.length + '), heavy fold 60→31 PASS')
 }
 
 // 4) structural light is pure (no LLM involvement): heavy LLM failure still completes
@@ -105,8 +106,8 @@ function mockCtx(opts?: { failLight?: boolean }) {
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.notEqual(result, null)
   const texts = session.surface.nodes.map(seq => messageOf(session, seq))
-  // text untouched everywhere (structural light)
-  assert.ok(texts.some(t => t.startsWith('user round 1')))
+  // text untouched everywhere (structural light) — light+raw zones verbatim
+  assert.ok(texts.some(t => t.startsWith('user round 3')) && texts.some(t => t.startsWith('user round 5')))
   console.log('4) structural light: text untouched, heavy completes PASS')
 }
 
