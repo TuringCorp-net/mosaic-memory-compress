@@ -30,7 +30,7 @@ structurally it is *amnesia followed by reading a diary*:
 
 - **A switch moment.** Memory breaks, then is rebuilt from a single summary call.
 - **Indiscriminate loss.** The freshest instructions are paraphrased too — the
-  exact part that must stay vivid. In our own A/B experiment the brief
+  exact part that must stay vivid. In a controlled A/B experiment the brief
   paraphrased the user's latest instruction and silently dropped an action
   item ("write the key points into MEMORY").
 - **Invisible loss.** The next model cannot know what the brief omitted, so it

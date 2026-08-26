@@ -63,7 +63,7 @@ savings vs 5.6% from 254 LLM calls):
 Synchronous, deterministic, never fails; shadow-price (compaction/prune)
 reporting unchanged.
 
-### 3.2 Heavy: bounded checkpoint, our summarization
+### 3.2 Heavy: bounded checkpoint, custom summarization
 
 The heavy checkpoint is produced by **our** summarization, not DSH's:
 

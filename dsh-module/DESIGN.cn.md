@@ -58,9 +58,9 @@ token 构成实测（reasoning 33% + 工具参数 33% + 工具结果 24%，文�
 
 同步、确定、永不失败；shadow-price（compaction/prune）上报不变。
 
-### 3.2 Heavy：有界 checkpoint，我们的摘要
+### 3.2 Heavy：有界 checkpoint，自定义摘要
 
-heavy checkpoint 由**我们**的摘要生成，不是 DSH 的：
+heavy checkpoint 由**自定义**摘要生成，不是 DSH 官方的：
 
 - 重写 `summarize()`：采用主库的对话记忆压缩器指令——规定角色与输出形态，
   但内容取舍交给模型自己决定（关键决策、偏好、未完成事项、教训；古早冗余
