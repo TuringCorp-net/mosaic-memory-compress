@@ -1,0 +1,12 @@
+# MosaicMemoryCompress — DSH bundle patch layer.
+# Installed via `dsh plugin add TuringCorp-net/mosaic-memory-compress`.
+# The adapter entry lives at dsh-module/dist/index.cjs (see package.json exports).
+- insert:
+    - id: mosaic-memory-compact
+      name: 'mosaic-memory-compress/dsh-module/dist/index.cjs'
+      config:
+        lightStart: 10
+        lightWindow: 30
+        heavyStart: 30
+        heavyWindow: 30
+        maxTokens: 8192

@@ -9,11 +9,18 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./dsh-module/dist/index.cjs": {
+      "types": "./dsh-module/dist/index.d.cts",
+      "default": "./dsh-module/dist/index.cjs"
     }
   },
   "files": [
     "src/",
-    "docs/"
+    "docs/",
+    "dsh-module/dist/",
+    "dsh-module/src/",
+    "cordis.patch.yml"
   ],
   "scripts": {
     "test": "npx tsx tests/index.test.ts",
@@ -46,5 +53,10 @@
     "type": "git",
     "url": "https://github.com/TuringCorp-net/mosaic-memory-compress"
   },
-  "homepage": "https://github.com/TuringCorp-net/mosaic-memory-compress#readme"
+  "homepage": "https://github.com/TuringCorp-net/mosaic-memory-compress#readme",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
 }
