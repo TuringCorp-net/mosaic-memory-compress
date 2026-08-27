@@ -148,10 +148,10 @@ function mockCtx(opts?: { failLight?: boolean }) {
   }
   assert.equal(bad.length, 0, 'messages missing id: ' + bad.join(','))
   // specifically the checkpoint + confirm we append
-  const checkpoint = session.events.find(e => e.type === 'user/message' && e.data?.source?.plugin === 'dsh-mosaic-memory-compress')
-  assert.ok(checkpoint && checkpoint.data.id, 'checkpoint user message missing id')
+  const checkpoint = session.events.find(e => e.type === 'user/message' && (e.data as any)?.source?.plugin === 'dsh-mosaic-memory-compress')
+  assert.ok(checkpoint && (checkpoint.data as any).id, 'checkpoint user message missing id')
   const confirm = session.events.find(e => e.type === 'assistant/message' && JSON.stringify(e.data?.message?.content).includes('MosaicMemory'))
-  assert.ok(confirm && confirm.data?.message?.id, 'confirm message missing id')
+  assert.ok(confirm && (confirm.data as any)?.message?.id, 'confirm message missing id')
   console.log('6) identified-message constraint: all appended messages carry id PASS')
 }
 
