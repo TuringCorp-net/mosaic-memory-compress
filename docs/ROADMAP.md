@@ -96,6 +96,8 @@ v2 benefits: zero cache cost (a new session's first miss is existing
 behavior), better memory continuity than a pure brief, bounded surface, and
 minimal implementation (reuses existing components).
 
-**Status**: continuous compaction is paused from live deployment (default:
-official standard, cost-optimal); M2-M4 results are fully preserved, M5 is
-implementable at any time.
+**Status**: parameters finalized (10/30/30/30, 2026-08-26) with cost verified
+at ~1.8× baseline for long sessions and zero cost for short ones — continuous
+compaction is the active mode, with re-deployment in progress. M2-M4 results
+are fully preserved; M5 remains an evolution direction (the zero-tax
+reset-moment form).
