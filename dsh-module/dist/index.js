@@ -54,7 +54,8 @@ var DEFAULTS = {
   lightWindow: 30,
   heavyStart: 30,
   heavyWindow: 30,
-  maxTokens: 8192
+  maxTokens: 8192,
+  sessionAllowlist: []
 };
 function isUserRound(message) {
   return message.role === "user" && message.source.kind === "user";
@@ -118,6 +119,10 @@ var MosaicMemoryCompactionEngine = class extends BasicCompactionEngine {
    * below threshold or off-window. context-overflow forces a run.
    */
   async compactIfNeeded(agent, trigger, signal) {
+    const allow = this.mosaic.sessionAllowlist ?? [];
+    if (!allow.includes("*") && !allow.includes(agent.session.id)) {
+      return null;
+    }
     const t0 = Date.now();
     this.lightStats = { calls: 0, tokens: 0 };
     const userCount = this.userRounds(agent.session);

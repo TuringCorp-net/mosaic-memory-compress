@@ -128,6 +128,9 @@ if (count % lightWindow !== 0) return null   // 不在窗口边界（防抖）
     heavyStart: 30
     heavyWindow: 30
     maxTokens: 8192
+    # 安全闸门：仅压缩列出的会话。默认 [] = 全禁用；['*'] = 全部会话。
+    sessionAllowlist:
+      - fb80be2a-99aa-42e1-9de8-2f7017d2c0b6
 ```
 
 ## 六、架构边界

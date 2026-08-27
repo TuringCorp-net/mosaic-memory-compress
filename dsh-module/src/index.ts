@@ -47,17 +47,26 @@ import { zoneBoundaries } from './zones.ts'
 
 /** Zone thresholds in memory-round (user-message) units. */
 export interface MosaicMemoryConfig {
-  /** Most recent N memory rounds kept raw (default 30). */
+  /** Most recent N memory rounds kept raw (default 10). */
   lightStart: number
-  /** Anti-jitter: run compression every N rounds (default 10). */
+  /** Anti-jitter: run compression every N rounds (default 30). */
   lightWindow: number
-  /** Rounds older than this fold into the heavy checkpoint (default 50). */
+  /** Rounds older than this fold into the heavy checkpoint (default 30). */
   heavyStart: number
-  /** Anti-jitter for the heavy fold (default 10). */
+  /** Anti-jitter for the heavy fold (default 30). */
   heavyWindow: number
 
   /** Generation cap for the heavy checkpoint (default 8192). */
   maxTokens: number
+
+  /**
+   * Session allowlist (safety gate). Only sessions listed here are
+   * compressed; everything else is a zero-cost no-op. Default [] = nothing
+   * is compressed until explicitly enabled. Use ['*'] to allow every
+   * session (the pre-allowlist behavior). First-time users: list exactly
+   * the session id(s) they want to try.
+   */
+  sessionAllowlist?: string[]
 }
 
 /** Light structural-truncation limits (mirror the library's light pass). */
@@ -108,6 +117,7 @@ const DEFAULTS: Required<MosaicMemoryConfig> = {
   heavyStart: 30,
   heavyWindow: 30,
   maxTokens: 8192,
+  sessionAllowlist: [],
 }
 
 /** One surface node with its message payload. */
@@ -222,6 +232,14 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     trigger: CompactionTrigger,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
+    // Safety gate: only allowlisted sessions are compressed. Default []
+    // disables everything until explicitly enabled — first-time users list
+    // the session id(s) they want to try, so a bad experiment can never
+    // touch other conversations.
+    const allow = this.mosaic.sessionAllowlist ?? []
+    if (!allow.includes('*') && !allow.includes(agent.session.id)) {
+      return null
+    }
     const t0 = Date.now()
     this.lightStats = { calls: 0, tokens: 0 }
     const userCount = this.userRounds(agent.session)

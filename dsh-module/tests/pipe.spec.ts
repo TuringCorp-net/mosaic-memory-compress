@@ -55,7 +55,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
 // 1) below threshold → null (zero cost)
 {
   const session = seedSession(20)
-  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, {})
+  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['pipe-session'] })
   const agent = { session, options: { provider: 'mock', model: 'mock' } }
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.equal(result, null)
@@ -65,7 +65,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
 // 2) off-window (userCount 25) → null
 {
   const session = seedSession(25)
-  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, {})
+  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['pipe-session'] })
   const agent = { session, options: { provider: 'mock', model: 'mock' } }
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.equal(result, null)
@@ -74,7 +74,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
 // 3) 60 rounds: structural light (text verbatim) + heavy fold, raw untouched
 {
   const session = seedSession(60)
-  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, {})
+  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['pipe-session'] })
   const agent = { session, options: { provider: 'mock', model: 'mock' } }
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.notEqual(result, null)
@@ -101,7 +101,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
 // 4) structural light is pure (no LLM involvement): heavy LLM failure still completes
 {
   const session = seedSession(60)
-  const engine = new MosaicMemoryCompactionEngine(mockCtx({ failLight: true }) as never, {})
+  const engine = new MosaicMemoryCompactionEngine(mockCtx({ failLight: true }) as never, { sessionAllowlist: ['pipe-session'] })
   const agent = { session, options: { provider: 'mock', model: 'mock' } }
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.notEqual(result, null)
@@ -109,6 +109,20 @@ function mockCtx(opts?: { failLight?: boolean }) {
   // text untouched everywhere (structural light) — light+raw zones verbatim
   assert.ok(texts.some(t => t.startsWith('user round 3')) && texts.some(t => t.startsWith('user round 5')))
   console.log('4) structural light: text untouched, heavy completes PASS')
+}
+
+
+// 5) session allowlist: non-listed session is a zero-cost no-op; listed one works
+{
+  const session = seedSession(60)
+  const engineBlocked = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['other-session'] })
+  const blocked = await engineBlocked.compactIfNeeded({ session, options: { provider: 'mock', model: 'mock' } } as never, 'pressure', new AbortController().signal)
+  assert.equal(blocked, null)
+  assert.equal(session.surface.nodes.length, 60) // untouched
+  const engineAllowed = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['pipe-session'] })
+  const allowed = await engineAllowed.compactIfNeeded({ session, options: { provider: 'mock', model: 'mock' } } as never, 'pressure', new AbortController().signal)
+  assert.notEqual(allowed, null)
+  console.log('5) allowlist gate: blocked session untouched, listed session compresses PASS')
 }
 
 console.log('pipe.spec: all scenarios passed')

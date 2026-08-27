@@ -142,6 +142,10 @@ a run. Returning `null` means nothing happens this step — the zero-cost path.
     heavyStart: 30
     heavyWindow: 30
     maxTokens: 8192
+    # Safety gate: only these sessions are compressed. Default [] = disabled.
+    # ['*'] = every session. First-time users: list exactly the session id.
+    sessionAllowlist:
+      - fb80be2a-99aa-42e1-9de8-2f7017d2c0b6
 ```
 
 ## 6. Architecture boundaries

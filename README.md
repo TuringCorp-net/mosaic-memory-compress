@@ -184,7 +184,22 @@ exists. Its primary integration reference is **DeepSeek Harness (DSH)**
 ([deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
 — everything is a plugin), whose task-level compaction / output retention /
 spill complement this library's message-level compression (roles and order
-preserved). A ready-to-use **DSH plugin backend** lives in
+preserved). ### DSH adapter: session allowlist (safety gate)
+
+By default the adapter compresses **nothing** until you explicitly list
+session ids — a first-time trial can never touch your other conversations:
+
+```yaml
+# cordis.patch.yml (or the plugin config)
+config:
+  sessionAllowlist:
+    - fb80be2a-99aa-42e1-9de8-2f7017d2c0b6   # only this session is compressed
+```
+
+Use `['*']` to allow every session (the pre-allowlist behavior). Sessions
+not listed are a zero-cost no-op.
+
+A ready-to-use **DSH plugin backend** lives in
 [`dsh-module/`](dsh-module/DESIGN.md) (design docs in EN/中文).
 
 Related:

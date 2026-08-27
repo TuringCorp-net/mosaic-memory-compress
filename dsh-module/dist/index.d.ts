@@ -7,16 +7,24 @@ import { Agent } from '@deepseek-ai/dsh-agent';
 
 /** Zone thresholds in memory-round (user-message) units. */
 interface MosaicMemoryConfig {
-    /** Most recent N memory rounds kept raw (default 30). */
+    /** Most recent N memory rounds kept raw (default 10). */
     lightStart: number;
-    /** Anti-jitter: run compression every N rounds (default 10). */
+    /** Anti-jitter: run compression every N rounds (default 30). */
     lightWindow: number;
-    /** Rounds older than this fold into the heavy checkpoint (default 50). */
+    /** Rounds older than this fold into the heavy checkpoint (default 30). */
     heavyStart: number;
-    /** Anti-jitter for the heavy fold (default 10). */
+    /** Anti-jitter for the heavy fold (default 30). */
     heavyWindow: number;
     /** Generation cap for the heavy checkpoint (default 8192). */
     maxTokens: number;
+    /**
+     * Session allowlist (safety gate). Only sessions listed here are
+     * compressed; everything else is a zero-cost no-op. Default [] = nothing
+     * is compressed until explicitly enabled. Use ['*'] to allow every
+     * session (the pre-allowlist behavior). First-time users: list exactly
+     * the session id(s) they want to try.
+     */
+    sessionAllowlist?: string[];
 }
 declare class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     static inject: string[];
