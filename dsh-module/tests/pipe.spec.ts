@@ -125,4 +125,34 @@ function mockCtx(opts?: { failLight?: boolean }) {
   console.log('5) allowlist gate: blocked session untouched, listed session compresses PASS')
 }
 
+
+// 6) identified-message constraint: every user/assistant message we append
+//    carries a non-empty message.id (DSH enforces this at session load —
+//    a missing id breaks the whole session log).
+{
+  const session = seedSession(60)
+  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['pipe-session'] })
+  const agent = { session, options: { provider: 'mock', model: 'mock' } }
+  await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
+
+  const bad: string[] = []
+  for (const ev of session.events) {
+    if (ev.type === 'user/message' || ev.type === 'assistant/message') {
+      const id = ev.data?.message?.id ?? ev.data?.id
+      if (!id) bad.push(ev.type + '@' + ev.seq)
+    }
+    if (ev.type === 'tool/result') {
+      const id = ev.data?.message?.id
+      if (!id) bad.push('tool/result@' + ev.seq)
+    }
+  }
+  assert.equal(bad.length, 0, 'messages missing id: ' + bad.join(','))
+  // specifically the checkpoint + confirm we append
+  const checkpoint = session.events.find(e => e.type === 'user/message' && e.data?.source?.plugin === 'dsh-mosaic-memory-compress')
+  assert.ok(checkpoint && checkpoint.data.id, 'checkpoint user message missing id')
+  const confirm = session.events.find(e => e.type === 'assistant/message' && JSON.stringify(e.data?.message?.content).includes('MosaicMemory'))
+  assert.ok(confirm && confirm.data?.message?.id, 'confirm message missing id')
+  console.log('6) identified-message constraint: all appended messages carry id PASS')
+}
+
 console.log('pipe.spec: all scenarios passed')

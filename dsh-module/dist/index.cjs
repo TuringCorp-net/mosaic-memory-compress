@@ -282,20 +282,23 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
       provider: summaryMessage.provider,
       model: summaryMessage.model
     });
-    const checkpointUser = session.append("user/message", {
+    const checkpointUser = session.append("user/message", (0, import_dsh_llm.createUserMessage)({
       content: [{ type: "text", text: summaryText }],
       source: { kind: "plugin", plugin: "dsh-mosaic-memory-compress" }
-    }, {
+    }), {
       surfaceOp: { op: "replace", start: startSeq, end: endSeq },
       sourceEventSeqs: shadowedSeqs
     });
     const confirm = session.append("assistant/message", {
       turn,
       step: 0,
-      message: {
-        role: "assistant",
-        content: [{ type: "text", text: "[MosaicMemory] ancient rounds folded into the checkpoint above; the summary pair is now the oldest memory layer." }]
-      }
+      message: (0, import_dsh_llm.createAssistantMessage)({
+        content: [{ type: "text", text: "[MosaicMemory] ancient rounds folded into the checkpoint above; the summary pair is now the oldest memory layer." }],
+        source: {
+          provider: summaryMessage.provider ?? "unknown",
+          model: summaryMessage.model ?? "unknown"
+        }
+      })
     }, { surfaceOp: "append" });
     const endEv = session.append("compaction/end", { compactionId, turn });
     return {

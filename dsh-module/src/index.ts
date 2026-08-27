@@ -34,6 +34,7 @@ import type {
 } from '@deepseek-ai/dsh-compaction'
 import {
   BlockAssembler,
+  createAssistantMessage,
   createUserMessage,
 } from '@deepseek-ai/dsh-llm'
 import type {
@@ -430,20 +431,26 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
       provider: summaryMessage.provider,
       model: summaryMessage.model,
     })
-    const checkpointUser = session.append('user/message', {
+    // DSH requires every user/assistant message to carry a non-empty
+    // message.id ("identified message", enforced at session load). Factory
+    // constructors assign the stable id — never hand-build message objects.
+    const checkpointUser = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: summaryText }],
       source: { kind: 'plugin', plugin: 'dsh-mosaic-memory-compress' },
-    } as never, {
+    }), {
       surfaceOp: { op: 'replace', start: startSeq, end: endSeq },
       sourceEventSeqs: shadowedSeqs,
     })
     const confirm = session.append('assistant/message', {
       turn,
       step: 0,
-      message: {
-        role: 'assistant',
+      message: createAssistantMessage({
         content: [{ type: 'text', text: '[MosaicMemory] ancient rounds folded into the checkpoint above; the summary pair is now the oldest memory layer.' }],
-      },
+        source: {
+          provider: summaryMessage.provider ?? 'unknown',
+          model: summaryMessage.model ?? 'unknown',
+        },
+      }),
     } as never, { surfaceOp: 'append' })
     const endEv = session.append('compaction/end', { compactionId, turn })
 

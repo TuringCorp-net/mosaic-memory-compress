@@ -2,6 +2,7 @@
 import { BasicCompactionEngine } from "@deepseek-ai/dsh-compaction-basic";
 import {
   BlockAssembler,
+  createAssistantMessage,
   createUserMessage
 } from "@deepseek-ai/dsh-llm";
 import { deriveEventMessage, isSurfaceEvent } from "@deepseek-ai/dsh-session";
@@ -259,20 +260,23 @@ var MosaicMemoryCompactionEngine = class extends BasicCompactionEngine {
       provider: summaryMessage.provider,
       model: summaryMessage.model
     });
-    const checkpointUser = session.append("user/message", {
+    const checkpointUser = session.append("user/message", createUserMessage({
       content: [{ type: "text", text: summaryText }],
       source: { kind: "plugin", plugin: "dsh-mosaic-memory-compress" }
-    }, {
+    }), {
       surfaceOp: { op: "replace", start: startSeq, end: endSeq },
       sourceEventSeqs: shadowedSeqs
     });
     const confirm = session.append("assistant/message", {
       turn,
       step: 0,
-      message: {
-        role: "assistant",
-        content: [{ type: "text", text: "[MosaicMemory] ancient rounds folded into the checkpoint above; the summary pair is now the oldest memory layer." }]
-      }
+      message: createAssistantMessage({
+        content: [{ type: "text", text: "[MosaicMemory] ancient rounds folded into the checkpoint above; the summary pair is now the oldest memory layer." }],
+        source: {
+          provider: summaryMessage.provider ?? "unknown",
+          model: summaryMessage.model ?? "unknown"
+        }
+      })
     }, { surfaceOp: "append" });
     const endEv = session.append("compaction/end", { compactionId, turn });
     return {
