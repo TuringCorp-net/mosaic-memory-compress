@@ -506,6 +506,8 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     for (const entry of zone) {
       if (this.distilledSeqs.has(entry.seq)) continue
       const msg = entry.message
+      this.lightStats.calls++
+      this.lightStats.tokens += meter !== undefined ? meter.estimateMessage(entry.message) : 0
       const isInjection = msg.source.kind === 'plugin'
       const blocks = this.structuralTruncate(msg.content, isInjection)
       // Shadow-price protocol: emit compaction/prune BEFORE each replacement so

@@ -138,11 +138,11 @@ function mockCtx(opts?: { failLight?: boolean }) {
   const bad: string[] = []
   for (const ev of session.events) {
     if (ev.type === 'user/message' || ev.type === 'assistant/message') {
-      const id = ev.data?.message?.id ?? ev.data?.id
+      const id = (ev.data as any)?.message?.id ?? (ev.data as any)?.id
       if (!id) bad.push(ev.type + '@' + ev.seq)
     }
     if (ev.type === 'tool/result') {
-      const id = ev.data?.message?.id
+      const id = (ev.data as any)?.message?.id
       if (!id) bad.push('tool/result@' + ev.seq)
     }
   }

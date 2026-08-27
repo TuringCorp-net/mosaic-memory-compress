@@ -341,6 +341,8 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
     for (const entry of zone) {
       if (this.distilledSeqs.has(entry.seq)) continue;
       const msg = entry.message;
+      this.lightStats.calls++;
+      this.lightStats.tokens += meter !== void 0 ? meter.estimateMessage(entry.message) : 0;
       const isInjection = msg.source.kind === "plugin";
       const blocks = this.structuralTruncate(msg.content, isInjection);
       if (meter !== void 0) {
