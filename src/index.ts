@@ -158,9 +158,12 @@ export async function mosaicMemoryCompress(
   // Below threshold → immediate return
   if (R < config.lightStart) return messages;
 
-  // Anti-jitter: only compress at window boundaries
-  const needLight = R % config.lightWindow === 0;
-  const needHeavy = R >= config.heavyStart && R % config.heavyWindow === 0;
+  // Anti-jitter: window boundary, OR first mount already beyond a full
+  // window past the heavy threshold — a fresh conversation at R=92 (not a
+  // multiple of 30) must still compress immediately instead of stalling.
+  const over = R - config.heavyStart;
+  const needLight = R % config.lightWindow === 0 || over > config.lightWindow;
+  const needHeavy = R >= config.heavyStart && (over % config.heavyWindow === 0 || over > config.heavyWindow);
 
   if (!needLight && !needHeavy) return messages;
 

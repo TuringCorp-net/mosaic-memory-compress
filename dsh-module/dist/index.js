@@ -15,6 +15,7 @@ function zoneBoundaries(userCount, lightStart, heavyStart) {
 }
 
 // src/index.ts
+import { randomUUID } from "crypto";
 var LIGHT_REASON_KEEP = 30;
 var LIGHT_ARG_FIELD_MAX = 120;
 var LIGHT_RESULT_HEAD = 50;
@@ -101,6 +102,7 @@ var MosaicMemoryCompactionEngine = class extends BasicCompactionEngine {
     }
     super(ctx, { auto: true });
     this.mosaic = mosaic;
+    this.lastTriggeredRound = mosaic.heavyStart;
     ctx.on("session/event", (session, event) => {
       if (!isSurfaceEvent(event)) return;
       const op = event.surfaceOp;
@@ -126,7 +128,7 @@ var MosaicMemoryCompactionEngine = class extends BasicCompactionEngine {
     const t0 = Date.now();
     this.lightStats = { calls: 0, tokens: 0 };
     const userCount = this.userRounds(agent.session);
-    const offWindow = userCount % this.mosaic.lightWindow !== 0;
+    const offWindow = userCount - this.lastTriggeredRound < this.mosaic.heavyWindow;
     const belowThreshold = userCount < this.mosaic.lightStart;
     const alreadyTriggered = userCount === this.lastTriggeredRound;
     if (trigger !== "context-overflow" && (belowThreshold || offWindow || alreadyTriggered)) {
@@ -139,7 +141,8 @@ var MosaicMemoryCompactionEngine = class extends BasicCompactionEngine {
       await this.lightPass(agent, zones.light, signal);
     }
     if (!zones.heavyEmpty && userCount >= this.mosaic.heavyStart) {
-      const result = await this.compactRegion(zones.heavy.start, zones.heavy.end, agent, signal);
+      const result = await this.heavyFold(agent, zones.heavy.start, zones.heavy.end, signal);
+      this.lastTriggeredRound = this.mosaic.heavyStart;
       console.log("[mosaic] pre-step sid=" + agent.session.id.slice(0, 8) + " R=" + userCount + " trigger=" + trigger + " TRIGGERED lightCalls=" + this.lightStats.calls + " lightTokens=" + this.lightStats.tokens + " heavyFolded=" + result.shadowedSeqs.length + " nodes (" + (Date.now() - t0) + "ms)");
       return result;
     }
@@ -207,6 +210,99 @@ var MosaicMemoryCompactionEngine = class extends BasicCompactionEngine {
     const heavyEmpty = heavyBoundaryIdx <= 0 || heavyBoundaryIdx > nodes.length;
     const heavy = heavyEmpty ? { start: 0, end: -1 } : { start: nodes[0].seq, end: nodes[heavyBoundaryIdx - 1].seq };
     return { light, heavy, heavyEmpty };
+  }
+  /**
+   * Self-implemented heavy fold (replaces the official compactRegion, whose
+   * token-meter strict state machine rejects replacement events carrying
+   * historical turn/step — measured on 2026-08-27 mount).
+   *
+   * Strips the ancient zone down to user/assistant TEXT ONLY (tool calls,
+   * tool results and reasoning are dropped — they are not useful to the
+   * summary), sends one LLM call, then lands a bounded summary pair with
+   * official-shaped compaction/start|summary|end events so projections and
+   * the UI consume it unchanged.
+   */
+  async heavyFold(agent, startSeq, endSeq, signal) {
+    const { session } = agent;
+    const nodes = this.surfaceNodes(session);
+    const startIdx = nodes.findIndex((n) => n.seq === startSeq);
+    const endIdx = nodes.findIndex((n) => n.seq === endSeq);
+    if (startIdx < 0 || endIdx < 0) {
+      throw new Error("mosaic-heavy: heavy range not found on surface");
+    }
+    const shadowed = nodes.slice(startIdx, endIdx + 1);
+    const stripped = shadowed.map((n) => this.textOnly(n.message)).filter((t) => t.length > 0).join("\n");
+    if (stripped.length === 0) {
+      throw new Error("mosaic-heavy: nothing left to summarize");
+    }
+    const summaryMessage = await this.summarize(
+      { messages: [createUserMessage({
+        content: [{ type: "text", text: stripped }],
+        source: { kind: "plugin", plugin: "dsh-mosaic-memory-compress" }
+      })] },
+      agent,
+      signal
+    );
+    const summaryText = summaryMessage.summary.map((b) => b.type === "text" ? b.text : "").join("").trim();
+    const meter = this.ctx.get("tokenMeter");
+    const shadowedTokenCount = meter ? shadowed.reduce((s, n) => s + meter.estimateMessage(n.message), 0) : 0;
+    const compactionId = randomUUID();
+    const turn = this.latestTurn(session);
+    const shadowedSeqs = shadowed.map((n) => n.seq);
+    const startEv = session.append("compaction/start", { compactionId, turn });
+    const summaryEv = session.append("compaction/summary", {
+      compactionId,
+      summary: [{ type: "text", text: summaryText }],
+      shadowedRange: { start: startSeq, end: endSeq },
+      shadowedSeqs,
+      shadowedTokenCount,
+      provider: summaryMessage.provider,
+      model: summaryMessage.model
+    });
+    const checkpointUser = session.append("user/message", {
+      content: [{ type: "text", text: summaryText }],
+      source: { kind: "plugin", plugin: "dsh-mosaic-memory-compress" }
+    }, {
+      surfaceOp: { op: "replace", start: startSeq, end: endSeq },
+      sourceEventSeqs: shadowedSeqs
+    });
+    const confirm = session.append("assistant/message", {
+      turn,
+      step: 0,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "[MosaicMemory] ancient rounds folded into the checkpoint above; the summary pair is now the oldest memory layer." }]
+      }
+    }, { surfaceOp: "append" });
+    const endEv = session.append("compaction/end", { compactionId, turn });
+    return {
+      compactionId,
+      startSeq: startEv.seq,
+      summarySeq: summaryEv.seq,
+      endSeq: endEv.seq,
+      summary: [{ type: "text", text: summaryText }],
+      shadowedRange: { start: startSeq, end: endSeq },
+      shadowedSeqs,
+      shadowedTokenCount,
+      provider: summaryMessage.provider,
+      model: summaryMessage.model
+    };
+  }
+  /** Text-only rendering of a message: user/assistant text blocks; tool noise dropped. */
+  textOnly(message) {
+    const role = message.role === "assistant" ? "assistant" : message.role === "user" ? "user" : null;
+    if (role === null) return "";
+    const text = (message.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
+    if (text.length === 0) return "";
+    return role + ": " + text;
+  }
+  /** Latest turn number from the session log. */
+  latestTurn(session) {
+    let turn = 0;
+    for (const e of session.events) {
+      if (e.type === "turn/start") turn = e.data.turn;
+    }
+    return turn;
   }
   // ───────────────────────────────────────────────────────────────── light
   /**

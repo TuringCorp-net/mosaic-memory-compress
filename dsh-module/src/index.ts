@@ -44,6 +44,7 @@ import type {
 import { deriveEventMessage, isSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { zoneBoundaries } from './zones.ts'
+import { randomUUID } from 'node:crypto'
 
 /** Zone thresholds in memory-round (user-message) units. */
 export interface MosaicMemoryConfig {
@@ -202,6 +203,10 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     }
     super(ctx, { auto: true })
     this.mosaic = mosaic
+    // Relative-window trigger: lastTriggeredRound starts at heavyStart so a
+    // first mount compresses immediately once R exceeds one window past it
+    // (e.g. R=92 → delta 62 ≥ 30 → fires), regardless of R % window == 0.
+    this.lastTriggeredRound = mosaic.heavyStart
     // Incremental round counters: watch the append-only event stream.
     ctx.on('session/event', (session: import('@deepseek-ai/dsh-session').Session, event: import('@deepseek-ai/dsh-session').SessionEvent) => {
       if (!isSurfaceEvent(event)) return
@@ -243,7 +248,11 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     const t0 = Date.now()
     this.lightStats = { calls: 0, tokens: 0 }
     const userCount = this.userRounds(agent.session)
-    const offWindow = userCount % this.mosaic.lightWindow !== 0
+    // Relative window: fire when at least one window has elapsed since the
+    // last compression. First mount: delta = R - heavyStart, so any R more
+    // than one window past the heavy threshold fires immediately — the
+    // "R not a multiple of 30" case can never stall a fresh install.
+    const offWindow = userCount - this.lastTriggeredRound < this.mosaic.heavyWindow
     const belowThreshold = userCount < this.mosaic.lightStart
     const alreadyTriggered = userCount === this.lastTriggeredRound
     if (trigger !== 'context-overflow' && (belowThreshold || offWindow || alreadyTriggered)) {
@@ -263,11 +272,14 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
       await this.lightPass(agent, zones.light, signal)
     }
 
-    // Heavy second: the official transaction folds the ancient region into
-    // one bounded checkpoint node (incremental by construction — the previous
-    // checkpoint is inside the range and gets re-summarized).
+    // Heavy second: self-implemented fold (official compactRegion is
+    // unusable here — its token-meter strict state machine rejects
+    // replacement events carrying historical turn/step, measured 2026-08-27).
+    // Events mimic the official shape (compaction/start|summary|end) so
+    // projections and the UI consume them unchanged.
     if (!zones.heavyEmpty && userCount >= this.mosaic.heavyStart) {
-      const result = await this.compactRegion(zones.heavy.start, zones.heavy.end, agent, signal)
+      const result = await this.heavyFold(agent, zones.heavy.start, zones.heavy.end, signal)
+      this.lastTriggeredRound = this.mosaic.heavyStart // folded → R settles at 30
       console.log('[mosaic] pre-step sid=' + agent.session.id.slice(0, 8)
         + ' R=' + userCount + ' trigger=' + trigger
         + ' TRIGGERED lightCalls=' + this.lightStats.calls
@@ -353,6 +365,122 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
       : { start: nodes[0].seq, end: nodes[heavyBoundaryIdx - 1].seq }
 
     return { light, heavy, heavyEmpty }
+  }
+
+  /**
+   * Self-implemented heavy fold (replaces the official compactRegion, whose
+   * token-meter strict state machine rejects replacement events carrying
+   * historical turn/step — measured on 2026-08-27 mount).
+   *
+   * Strips the ancient zone down to user/assistant TEXT ONLY (tool calls,
+   * tool results and reasoning are dropped — they are not useful to the
+   * summary), sends one LLM call, then lands a bounded summary pair with
+   * official-shaped compaction/start|summary|end events so projections and
+   * the UI consume it unchanged.
+   */
+  private async heavyFold(
+    agent: Agent,
+    startSeq: number,
+    endSeq: number,
+    signal: AbortSignal,
+  ): Promise<CompactionResult> {
+    const { session } = agent
+    const nodes = this.surfaceNodes(session)
+    const startIdx = nodes.findIndex(n => n.seq === startSeq)
+    const endIdx = nodes.findIndex(n => n.seq === endSeq)
+    if (startIdx < 0 || endIdx < 0) {
+      throw new Error('mosaic-heavy: heavy range not found on surface')
+    }
+    const shadowed = nodes.slice(startIdx, endIdx + 1)
+
+    // LLM input: user/assistant text only — strip tool noise entirely.
+    const stripped = shadowed
+      .map(n => this.textOnly(n.message))
+      .filter(t => t.length > 0)
+      .join('\n')
+    if (stripped.length === 0) {
+      throw new Error('mosaic-heavy: nothing left to summarize')
+    }
+    const summaryMessage = await this.summarize(
+      { messages: [createUserMessage({
+        content: [{ type: 'text', text: stripped }],
+        source: { kind: 'plugin', plugin: 'dsh-mosaic-memory-compress' },
+      })] },
+      agent,
+      signal,
+    )
+    const summaryText = summaryMessage.summary.map(b => b.type === 'text' ? b.text : '').join('').trim()
+
+    const meter = this.ctx.get('tokenMeter') as { estimateMessage(m: Message): number } | undefined
+    const shadowedTokenCount = meter
+      ? shadowed.reduce((s, n) => s + meter.estimateMessage(n.message), 0)
+      : 0
+
+    const compactionId = randomUUID() as unknown as import('@deepseek-ai/dsh-compaction').CompactionId
+    const turn = this.latestTurn(session)
+    const shadowedSeqs = shadowed.map(n => n.seq)
+
+    const startEv = session.append('compaction/start', { compactionId, turn })
+    const summaryEv = session.append('compaction/summary', {
+      compactionId,
+      summary: [{ type: 'text', text: summaryText }],
+      shadowedRange: { start: startSeq, end: endSeq },
+      shadowedSeqs,
+      shadowedTokenCount,
+      provider: summaryMessage.provider,
+      model: summaryMessage.model,
+    })
+    const checkpointUser = session.append('user/message', {
+      content: [{ type: 'text', text: summaryText }],
+      source: { kind: 'plugin', plugin: 'dsh-mosaic-memory-compress' },
+    } as never, {
+      surfaceOp: { op: 'replace', start: startSeq, end: endSeq },
+      sourceEventSeqs: shadowedSeqs,
+    })
+    const confirm = session.append('assistant/message', {
+      turn,
+      step: 0,
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: '[MosaicMemory] ancient rounds folded into the checkpoint above; the summary pair is now the oldest memory layer.' }],
+      },
+    } as never, { surfaceOp: 'append' })
+    const endEv = session.append('compaction/end', { compactionId, turn })
+
+    return {
+      compactionId,
+      startSeq: startEv.seq,
+      summarySeq: summaryEv.seq,
+      endSeq: endEv.seq,
+      summary: [{ type: 'text', text: summaryText }],
+      shadowedRange: { start: startSeq, end: endSeq },
+      shadowedSeqs,
+      shadowedTokenCount,
+      provider: summaryMessage.provider,
+      model: summaryMessage.model,
+    } as never
+  }
+
+  /** Text-only rendering of a message: user/assistant text blocks; tool noise dropped. */
+  private textOnly(message: Message): string {
+    const role = message.role === 'assistant' ? 'assistant' : message.role === 'user' ? 'user' : null
+    if (role === null) return ''
+    const text = (message.content ?? [])
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join(' ')
+      .trim()
+    if (text.length === 0) return ''
+    return role + ': ' + text
+  }
+
+  /** Latest turn number from the session log. */
+  private latestTurn(session: import('@deepseek-ai/dsh-session').Session): number {
+    let turn = 0
+    for (const e of session.events) {
+      if (e.type === 'turn/start') turn = e.data.turn
+    }
+    return turn
   }
 
   // ───────────────────────────────────────────────────────────────── light

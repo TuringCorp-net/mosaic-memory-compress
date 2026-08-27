@@ -79,7 +79,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.notEqual(result, null)
   const nodes = session.surface.nodes
-  assert.equal(nodes.length, 31) // 60 - 30 + 1 (heavyStart=30 default)
+  assert.equal(nodes.length, 32) // 60 - 30 + 2 (summary pair; heavyStart=30)
 
   const texts = nodes.map(seq => messageOf(session, seq))
   // light zone (30 messages, rounds 0..29): user TEXT stays verbatim

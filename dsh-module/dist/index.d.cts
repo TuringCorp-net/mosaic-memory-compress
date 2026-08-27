@@ -88,6 +88,22 @@ declare class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
      */
     private computeZones;
     /**
+     * Self-implemented heavy fold (replaces the official compactRegion, whose
+     * token-meter strict state machine rejects replacement events carrying
+     * historical turn/step — measured on 2026-08-27 mount).
+     *
+     * Strips the ancient zone down to user/assistant TEXT ONLY (tool calls,
+     * tool results and reasoning are dropped — they are not useful to the
+     * summary), sends one LLM call, then lands a bounded summary pair with
+     * official-shaped compaction/start|summary|end events so projections and
+     * the UI consume it unchanged.
+     */
+    private heavyFold;
+    /** Text-only rendering of a message: user/assistant text blocks; tool noise dropped. */
+    private textOnly;
+    /** Latest turn number from the session log. */
+    private latestTurn;
+    /**
      * Per-node 1:1 surface replacement over the light zone.
      * Pure structural truncation — synchronous, zero LLM calls.
      */
