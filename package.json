@@ -1,7 +1,7 @@
 {
   "name": "mosaic-memory-compress",
   "version": "1.0.0",
-  "description": "Stateless dialogue compression that mimics human memory — forgetting-curve bounded context for LLM conversations. DeepSeek Harness (DSH) plugin backend included.",
+  "description": "Generic stateless dialogue compression that mimics human memory — forgetting-curve bounded context for LLM conversations, with a ready-to-use adapter module for DeepSeek Harness (DSH).",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",

@@ -1,9 +1,12 @@
 # MosaicMemoryCompress
 
-**Stateless dialogue compression based on natural forgetting curve.**
+**A generic, pluggable stateless dialogue compression algorithm** — works
+with any LLM agent framework, and ships a ready-to-use adapter module for
+**DeepSeek Harness (DSH)**.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](https://www.typescriptlang.org)
+[![Supports DSH](https://img.shields.io/badge/Supports-DeepSeek%20Harness-blue)](https://github.com/deepseek-ai/deepseek-harness)
 [![GitHub stars](https://img.shields.io/github/stars/TuringCorp-net/mosaic-memory-compress)](https://github.com/TuringCorp-net/mosaic-memory-compress/stargazers)
 [![npm](https://img.shields.io/npm/v/mosaic-memory-compress)](https://www.npmjs.com/package/mosaic-memory-compress)
 
@@ -106,6 +109,7 @@ const compressed = await mosaicMemoryCompress(messages, config);
 - **Zero-cost below threshold** — returns immediately if no compression is due
 - **Anti-jitter** — compression only at configurable window boundaries
 - **LLM-agnostic** — bring your own `callLLM` function for Heavy (OpenAI, Anthropic, local models…); light runs zero-LLM
+- **DeepSeek Harness (DSH) adapter** — ships with `dsh-module/` for seamless integration; the core algorithm stays framework-agnostic
 - **Tool-call safe** — tool messages don't break round counting
 - **Graceful degradation** — LLM failures don't block the conversation
 
