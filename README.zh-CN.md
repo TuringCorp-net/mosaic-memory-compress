@@ -1,5 +1,8 @@
 # MosaicMemoryCompress
 
+[![Supports DeepSeek Harness](https://img.shields.io/badge/Supports-DeepSeek%20Harness-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
+
 **基于自然遗忘曲线的无状态对话压缩。**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)

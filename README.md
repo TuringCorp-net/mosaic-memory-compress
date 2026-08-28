@@ -1,5 +1,8 @@
 # MosaicMemoryCompress
 
+[![Supports DeepSeek Harness](https://img.shields.io/badge/Supports-DeepSeek%20Harness-blue)](https://github.com/deepseek-ai/deepseek-harness)
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
+
 **A generic, pluggable stateless dialogue compression algorithm** — works
 with any LLM agent framework, and ships a ready-to-use adapter module for
 **DeepSeek Harness (DSH)**.
