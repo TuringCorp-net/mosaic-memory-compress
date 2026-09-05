@@ -113,8 +113,13 @@ use recomputes. New sessions and restarts initialize with one full scan.
 The no-op path is therefore O(1) forever, independent of conversation
 length, and the count always matches the live surface.
 
-`lightWindow` (default 10) is the anti-jitter window: compression fires only
-at window boundaries. `context-overflow` bypasses the window check and forces
+**Light and heavy are decoupled** (each with its own per-session cadence,
+seeded from the zone starts): light (zero-LLM dehydration) first runs at
+R ≥ lightStart + lightWindow (e.g. 40) so mid-window sessions (30..59 rounds)
+dewater without waiting for the fold; heavy first runs at
+R ≥ heavyStart + heavyWindow (e.g. 60) so the ancient zone always holds a
+full window's worth before the one-LLM-call fold — never a one-round fold.
+`context-overflow` bypasses the window check and forces
 a run. Returning `null` means nothing happens this step — the zero-cost path.
 
 ## 4. DSH extension points
@@ -165,7 +170,7 @@ Test suites run against the real @deepseek-ai packages (no stubs):
 |---|---|
 | `zones.spec` | zone-boundary math, incl. boundary-equality cases |
 | `smoke.spec` | single-node surface replacement on a real Session |
-| `pipe.spec` | threshold/off-window no-ops; full 60-round pipeline (light distilled, raw verbatim, heavy fold 60 → 51 nodes); LLM failure keeps originals |
+| `pipe.spec` | threshold/off-window no-ops; full 60-round pipeline (light distilled, raw verbatim, heavy fold 60 → 31 nodes); LLM failure keeps originals |
 
 ## 8. Scope
 

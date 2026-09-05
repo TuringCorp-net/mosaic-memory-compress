@@ -5,7 +5,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { deriveEventMessage } from '@deepseek-ai/dsh-session'
 import { MosaicMemoryCompactionEngine } from '../src/index.ts'
 
-function seedSession(rounds: number): Session {
+function seedSession(rounds: number, id = 'pipe-session'): Session {
   const t0 = 1786000000000
   const seed: any[] = [{ type: 'turn/start', seq: 0, time: t0, data: { turn: 1 } }]
   for (let i = 0; i < rounds; i++) {
@@ -15,7 +15,7 @@ function seedSession(rounds: number): Session {
     })
     seed.push({ type: 'user/message', seq: i + 1, time: t0 + i, data: message, surfaceOp: 'append' })
   }
-  return Session.create('pipe-session' as never, seed as never)
+  return Session.create(id as never, seed as never)
 }
 
 function messageOf(session: Session, seq: number): string {
@@ -171,3 +171,72 @@ console.log('pipe.spec: all scenarios passed')
   assert.notEqual(allowed, null, 'fleet-wide allowlist minus denylist still compresses')
   console.log('7) denylist gate: deny wins over allow, fleet-wide minus deny works PASS')
 }
+
+// 8) decoupled windows: R=39 (mid-window, like 85cd44e7) → nothing yet
+//    (light first run needs R >= lightStart + lightWindow = 40)
+{
+  const session = seedSession(39)
+  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['pipe-session'] })
+  const agent = { session, options: { provider: 'mock', model: 'mock' } }
+  const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
+  assert.equal(result, null, 'R=39 must not trigger (light needs 40, heavy needs 60)')
+  assert.equal(session.surface.nodes.length, 39, 'R=39 surface untouched')
+  console.log('8) R=39 mid-window no-op PASS')
+}
+
+// 9) R=40 → LIGHT ONLY (dehydration runs; heavy fold waits for R=60)
+{
+  const session = seedSession(40)
+  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['pipe-session'] })
+  const agent = { session, options: { provider: 'mock', model: 'mock' } }
+  await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
+  // light-only run: light = 1:1 replacements (new seqs), user-round count stays 40
+  const users = session.surface.nodes.filter(n => (session.events.find(e => e.seq === n)?.data as any)?.source?.kind === 'user')
+  assert.equal(users.length, 40, 'light is 1:1 — user rounds unchanged at 40')
+  const replacedUsers = users.filter(n => n > 40).length
+  assert.ok(replacedUsers > 0, 'light replaced middle-zone nodes (got ' + replacedUsers + ')')
+  // heavy must NOT have run: no mosaic checkpoint node appended
+  const checkpoint = session.events.find(e => e.type === 'user/message' && (e.data as any)?.source?.plugin === 'dsh-mosaic-memory-compress')
+  assert.ok(!checkpoint, 'heavy fold must not run at R=40')
+  console.log('9) R=40 light-only (no heavy fold, ' + replacedUsers + ' nodes replaced) PASS')
+}
+
+// 10) R=45 → light only too; then again at R=75 → light only (heavy still not due: 75-30=45>=30 → due!)
+//     wait — verify per-window semantics: heavy due = 45 >= 30 window → so 75 fires heavy.
+//     Use R=45 to assert light-only, then R=61 in a fresh engine to show light+heavy? — R=61: light 51>=30 due, heavy 31>=30 due.
+//     Simplest split assertion: R=45 light-only; R=75 (heavy delta 45) light+heavy.
+{
+  const session = seedSession(45)
+  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['pipe-session'] })
+  const agent = { session, options: { provider: 'mock', model: 'mock' } }
+  await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
+  const replacedUsers = session.surface.nodes.filter(n => ((session.events.find(e => e.seq === n)?.data) as any)?.source?.kind === 'user' && n > 45).length
+  assert.ok(replacedUsers > 0, 'R=45 light must run')
+  const checkpoint = session.events.find(e => e.type === 'user/message' && (e.data as any)?.source?.plugin === 'dsh-mosaic-memory-compress')
+  assert.ok(!checkpoint, 'R=45: heavy must still wait (heavy needs R>=60)')
+  console.log('10) R=45 light-only (mid-window dehydration, ' + replacedUsers + ' nodes) PASS')
+}
+
+// 11) per-session isolation: session A at R=60 triggers, session B at R=45 still runs its own light
+{
+  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['*'] })
+  const a = seedSession(60, 'session-a')
+  const b = seedSession(45, 'session-b')
+  const agentA = { session: a, options: { provider: 'mock', model: 'mock' } }
+  const agentB = { session: b, options: { provider: 'mock', model: 'mock' } }
+  await engine.compactIfNeeded(agentA as never, 'pressure', new AbortController().signal)
+  // A folded: 60 → 31 user rounds
+  const aUsers = a.surface.nodes.filter(n => ((a.events.find(e => e.seq === n)?.data) as any)?.source?.kind === 'user')
+  assert.ok(aUsers.length <= 31, 'A folded toward 31')
+  // B must NOT be gated by A's trigger: B's light is due (45-10=35 >= 30)
+  await engine.compactIfNeeded(agentB as never, 'pressure', new AbortController().signal)
+  const bCheckpoint = b.events.find(e => e.type === 'user/message' && (e.data as any)?.source?.plugin === 'dsh-mosaic-memory-compress')
+  assert.ok(!bCheckpoint, 'B light-only — no heavy (R=45)')
+  const bUsers = b.surface.nodes.filter(n => ((b.events.find(e => e.seq === n)?.data) as any)?.source?.kind === 'user')
+  assert.equal(bUsers.length, 45, 'B light 1:1 keeps 45 rounds')
+  const bReplaced = bUsers.filter(n => n > 45).length
+  assert.ok(bReplaced > 0, 'B must trigger its own light independently of A')
+  console.log('11) per-session trigger isolation PASS')
+}
+
+console.log('pipe.spec: all scenarios passed')

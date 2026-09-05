@@ -183,11 +183,25 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
   private lightStats = { calls: 0, tokens: 0 }
 
   /**
-   * Window-level dedup: R stays on a window boundary across the steps of one
-   * turn (pre-step runs per step), so without this guard the same round
-   * would re-trigger full distillation for every step. One trigger per round.
+   * Per-session trigger state (lazily initialized): { light, heavy } = the
+   * round that pass last ran at, seeded with the zone starts so a fresh mount
+   * fires once R is a full window past them. Light and heavy are fully
+   * DECOUPLED: light is zero-LLM dehydration and deserves its own cadence
+   * (first run at R ≥ lightStart + lightWindow, e.g. 40), while heavy is the
+   * costly fold with its own (first at R ≥ heavyStart + heavyWindow, e.g. 60)
+   * so a 30..59-round session de-waters without paying a one-round fold.
+   * Per-session: one conversation's trigger must never gate another's.
    */
-  private lastTriggeredRound = -1
+  private readonly triggerState = new Map<string, { light: number; heavy: number }>()
+
+  private stateOf(sessionId: string): { light: number; heavy: number } {
+    let s = this.triggerState.get(sessionId)
+    if (s === undefined) {
+      s = { light: this.mosaic.lightStart, heavy: this.mosaic.heavyStart }
+      this.triggerState.set(sessionId, s)
+    }
+    return s
+  }
 
   /**
    * Incremental round counters (per session), maintained via session/event.
@@ -214,10 +228,6 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     }
     super(ctx, { auto: true })
     this.mosaic = mosaic
-    // Relative-window trigger: lastTriggeredRound starts at heavyStart so a
-    // first mount compresses immediately once R exceeds one window past it
-    // (e.g. R=92 → delta 62 ≥ 30 → fires), regardless of R % window == 0.
-    this.lastTriggeredRound = mosaic.heavyStart
     // Incremental round counters: watch the append-only event stream.
     ctx.on('session/event', (session: import('@deepseek-ai/dsh-session').Session, event: import('@deepseek-ai/dsh-session').SessionEvent) => {
       if (!isSurfaceEvent(event)) return
@@ -263,38 +273,44 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     const t0 = Date.now()
     this.lightStats = { calls: 0, tokens: 0 }
     const userCount = this.userRounds(agent.session)
-    // Relative window: fire when at least one window has elapsed since the
-    // last compression. First mount: delta = R - heavyStart, so any R more
-    // than one window past the heavy threshold fires immediately — the
-    // "R not a multiple of 30" case can never stall a fresh install.
-    const offWindow = userCount - this.lastTriggeredRound < this.mosaic.heavyWindow
+    const state = this.stateOf(agent.session.id)
+    // DECOUPLED windows (one cadence each, both seeded from the zone starts):
+    //   light due → R ≥ lightStart + lightWindow (dewater, zero-LLM, cheap)
+    //   heavy due → R ≥ heavyStart + heavyWindow (fold — waits until the
+    //   ancient zone holds a full window so it never folds a one-round span)
+    // context-overflow forces a full run regardless of windows.
     const belowThreshold = userCount < this.mosaic.lightStart
-    const alreadyTriggered = userCount === this.lastTriggeredRound
-    if (trigger !== 'context-overflow' && (belowThreshold || offWindow || alreadyTriggered)) {
+    const lightDue = userCount - state.light >= this.mosaic.lightWindow
+    const heavyDue = userCount - state.heavy >= this.mosaic.heavyWindow
+    if (trigger !== 'context-overflow' && (belowThreshold || (!lightDue && !heavyDue))) {
       console.log('[mosaic] pre-step sid=' + agent.session.id.slice(0, 8)
         + ' R=' + userCount + ' trigger=' + trigger
-        + (alreadyTriggered ? ' dedup' : '')
         + ' no-op (' + (Date.now() - t0) + 'ms)')
       return null
     }
-    this.lastTriggeredRound = userCount
 
     const zones = this.computeZones(agent)
 
-    // Light first: 1:1 replacements keep the surface structure (count, roles,
-    // pairing) intact, so the heavy range computed before remains valid.
-    if (zones.light.length > 0) {
+    // Light first (dehydration, zero LLM): 1:1 replacements keep the surface
+    // structure intact, so the heavy range computed before remains valid.
+    // Runs on its own cadence — a mid-window session (30..59 rounds) dewaters
+    // without waiting for the heavy fold.
+    let lightRan = false
+    if (lightDue && zones.light.length > 0) {
       await this.lightPass(agent, zones.light, signal)
+      state.light = userCount
+      lightRan = true
     }
 
-    // Heavy second: self-implemented fold (official compactRegion is
-    // unusable here — its token-meter strict state machine rejects
-    // replacement events carrying historical turn/step, measured 2026-08-27).
-    // Events mimic the official shape (compaction/start|summary|end) so
-    // projections and the UI consume them unchanged.
-    if (!zones.heavyEmpty && userCount >= this.mosaic.heavyStart) {
+    // Heavy second (fold, one LLM call). Official compactRegion is unusable
+    // here — its token-meter strict state machine rejects replacement events
+    // carrying historical turn/step, measured 2026-08-27. Events mimic the
+    // official shape (compaction/start|summary|end) so projections and the
+    // UI consume them unchanged.
+    if (heavyDue && !zones.heavyEmpty && userCount >= this.mosaic.heavyStart) {
       const result = await this.heavyFold(agent, zones.heavy.start, zones.heavy.end, signal)
-      this.lastTriggeredRound = this.mosaic.heavyStart // folded → R settles at 30
+      // Folded → the visible R settles back toward heavyStart, which matches
+      // the per-session seed; no state bump needed (next fold at R+window).
       console.log('[mosaic] pre-step sid=' + agent.session.id.slice(0, 8)
         + ' R=' + userCount + ' trigger=' + trigger
         + ' TRIGGERED lightCalls=' + this.lightStats.calls
@@ -305,9 +321,9 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     }
     console.log('[mosaic] pre-step sid=' + agent.session.id.slice(0, 8)
       + ' R=' + userCount + ' trigger=' + trigger
-      + ' TRIGGERED lightCalls=' + this.lightStats.calls
-      + ' lightTokens=' + this.lightStats.tokens
-      + ' heavy=none (below heavyStart) (' + (Date.now() - t0) + 'ms)')
+      + ' TRIGGERED' + (lightRan ? ' lightCalls=' + this.lightStats.calls
+        + ' lightTokens=' + this.lightStats.tokens : ' lightCalls=0 lightTokens=0')
+      + ' heavy=none (' + (Date.now() - t0) + 'ms)')
     return null
   }
 

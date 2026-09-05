@@ -47,11 +47,17 @@ declare class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     /** Per-pre-step light statistics for the journal diagnostics. */
     private lightStats;
     /**
-     * Window-level dedup: R stays on a window boundary across the steps of one
-     * turn (pre-step runs per step), so without this guard the same round
-     * would re-trigger full distillation for every step. One trigger per round.
+     * Per-session trigger state (lazily initialized): { light, heavy } = the
+     * round that pass last ran at, seeded with the zone starts so a fresh mount
+     * fires once R is a full window past them. Light and heavy are fully
+     * DECOUPLED: light is zero-LLM dehydration and deserves its own cadence
+     * (first run at R ≥ lightStart + lightWindow, e.g. 40), while heavy is the
+     * costly fold with its own (first at R ≥ heavyStart + heavyWindow, e.g. 60)
+     * so a 30..59-round session de-waters without paying a one-round fold.
+     * Per-session: one conversation's trigger must never gate another's.
      */
-    private lastTriggeredRound;
+    private readonly triggerState;
+    private stateOf;
     /**
      * Incremental round counters (per session), maintained via session/event.
      * no-op pre-steps read this in O(1) instead of rescanning the whole log.
