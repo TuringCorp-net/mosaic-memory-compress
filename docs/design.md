@@ -250,7 +250,7 @@ endlessly continuable.
 
 V1 ships the two-zone scheme (light + heavy) and observes real-world effect
 before any finer tiering.
-### 8.5 Cost model: the cache-breakpoint tax (measured 2026-08-16)
+### 8.5 Cost model: the cache-breakpoint tax (measured 2026-08-16, refined 2026-09-06)
 
 On providers with automatic prefix caching (DeepSeek, OpenAI), ANY in-place
 edit of sent history breaks the cache prefix — the first edited node onward
@@ -264,6 +264,29 @@ cost; N=20/50 halves/quarters it. This is a parameterized tradeoff — the tax
 buys bounded surface and unbounded dialogue, and can be tuned to the host's
 cost sensitivity. (Zero-tax alternative: reset-moment enhancement — see
 ROADMAP M5.)
+
+**Field measurement (2026-09-06, live DSH session 85cd44e7, light pass on a
+55-round workflow conversation).** The heavy-fold numbers above describe the
+ancient-zone fold; the LIGHT pass behaves differently and far cheaper:
+
+- 706 mid-surface nodes replaced 1:1 (30 rounds dewatered) — surface dropped
+  553K → 313K tokens (context usage 55% → 39%)
+- The cache break is NOT total: prefix caching survives up to the first
+  replaced node (~304K tokens still cache-hit on the next request, 97% of the
+  new surface); the miss is only the replaced span and beyond: 79.8K tokens
+  (79,986 − 221 baseline miss)
+- One-time light tax at DeepSeek pricing: ≈ $0.015–0.04 (miss $0.28–0.56/M,
+  hit 10–30× cheaper)
+- Payback within the same 30-round window: each following request bills
+  ~240K fewer surface tokens ≈ $0.0067/round saved → ≈ $0.20 per window —
+  **~10× the tax**. The dewatered surface pays for the miss within a handful
+  of rounds.
+
+So the earlier ~1.8×-baseline estimate (165-round simulation, heavyStart=30,
+single-shot fold) overstates the steady-state cost of the aligned design:
+the light tax is one order of magnitude smaller than the surface savings it
+buys, and the heavy fold happens once per 30 rounds with a bounded,
+already-dewatered input.
 
 
 ## 9. Empirical Case Study: One Event, Three Memory Carriers

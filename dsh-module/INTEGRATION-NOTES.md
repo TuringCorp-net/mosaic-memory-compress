@@ -212,3 +212,29 @@ and fold in one request).
 **Key insight**: heavy LLM cost is negligible (cents); the cost driver is the
 cache-miss tax (surface×30/N), and the window N is the only effective lever —
 the 30-round alignment is the optimal balance.
+
+## 16. Field cost measurement: light-pass cache tax vs surface savings (2026-09-06)
+
+Live DSH session `85cd44e7` (coding workspace, workflow conversation, 55 real
+user rounds) ran the first production light pass after the 0.1.2 API fix:
+
+- 706 mid-surface nodes replaced 1:1 (30-round light zone dewatered);
+  surface 553K → 313K tokens (context usage 55% → 39%)
+- Next-request cache accounting (usage fields): cacheRead 304,512 (prefix up
+  to the first replaced node still hits — 97% of the new surface),
+  miss 79,986 tokens (vs 221 baseline) → **one-time light tax ≈ 79.8K tokens,
+  ≈ $0.015–0.04**
+- Payback: each of the following ~30 requests bills ~240K fewer surface
+  tokens ≈ $0.20 per window → **≈ 10× the tax** — the dewatered surface
+  repays the cache break within a few rounds
+
+This refines §15's simulated ~1.8× baseline: that number modeled a
+single-shot full-surface miss (heavyStart=30 era). Under the aligned
+10/40/30/30 design the light pass breaks only the replaced span (not the
+prefix), and the heavy fold consumes an already-dewatered zone — steady-state
+cost sits well below 1.8×, dominated by the surface the raw zone keeps vivid.
+
+(Measurement caveat: prefix hit up to the replacement point means the light
+zone's position in the surface matters — earlier light zones break more
+prefix. Zone positions are age-relative, so the break stays bounded by the
+40-round steady state.)
