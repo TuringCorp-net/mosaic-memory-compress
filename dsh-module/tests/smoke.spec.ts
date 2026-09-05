@@ -24,9 +24,10 @@ const replacement = createUserMessage({
   content: [{ type: 'text', text: 'round 1 DISTILLED' }],
   source: { kind: 'user' },
 })
+const seq = (v: number) => v as unknown as import('@deepseek-ai/dsh-session').SessionSeq
 const ev = session.append('user/message', replacement, {
-  surfaceOp: { op: 'replace', start: 1, end: 1 },
-  sourceEventSeqs: [1],
+  surfaceOp: { op: 'replace', start: seq(1), end: seq(1) },
+  sourceEventSeqs: [seq(1)],
 })
 assert.equal((ev.surfaceOp as { op?: string } | 'append') !== 'append' && (ev.surfaceOp as { op?: string }).op, 'replace')
 // surface keeps count and order (1:1 replacement)

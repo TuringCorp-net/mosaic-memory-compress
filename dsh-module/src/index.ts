@@ -24,6 +24,7 @@
  */
 
 import { Context } from '@deepseek-ai/cordis'
+import { appendFileSync } from 'node:fs'
 import { BasicCompactionEngine } from '@deepseek-ai/dsh-compaction-basic'
 import {
   isCompactCheckpointSource,
@@ -166,6 +167,23 @@ function isUserRound(message: Message): boolean {
   return message.role === 'user' && message.source.kind === 'user'
 }
 
+/** Session events across the 0.1.x → 0.1.2 API change:
+ * 0.1.0 had `session.events` (array); 0.1.2 removed it in favor of
+ * `session.snapshotEvents()`. The module's dev/test tree pins 0.1.0-rc.x,
+ * the runtime host runs 0.1.2 — support both. */
+/** 0.1.2 brands surface seqs (SessionSeq) — cast helper for number→branded. */
+function seqRange(v: number): import('@deepseek-ai/dsh-session').SessionSeq {
+  return v as unknown as import('@deepseek-ai/dsh-session').SessionSeq
+}
+
+function sessionEventList(session: import('@deepseek-ai/dsh-session').Session): readonly import('@deepseek-ai/dsh-session').SessionEvent[] {
+  const s = session as unknown as {
+    events?: readonly import('@deepseek-ai/dsh-session').SessionEvent[]
+    snapshotEvents?: () => readonly import('@deepseek-ai/dsh-session').SessionEvent[]
+  }
+  return s.snapshotEvents !== undefined ? s.snapshotEvents() : (s.events ?? [])
+}
+
 export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
   static inject = ['llm', 'tokenMeter', 'sessions']
 
@@ -258,22 +276,33 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     trigger: CompactionTrigger,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
-    // Safety gates. Denylist always wins (keeps reference conversations out
+    // TEMP DIAGNOSTICS (2026-09-05): file-based, bypasses journal buffering.
+    const diag = (msg: string) => {
+      try {
+        appendFileSync('/tmp/mosaic-diag.log',
+          new Date().toISOString() + ' ' + msg + '\n')
+      } catch { /* never fail the compaction path */ }
+    }
+    diag('compactIfNeeded sid=' + agent.session.id + ' trigger=' + trigger)
+    try {
     // of a fleet-wide rollout). Then allowlist: only listed sessions are
     // compressed; default [] disables everything until explicitly enabled —
     // first-time users list exactly the session id(s) they want to try.
     const deny = this.mosaic.sessionDenylist ?? []
     if (deny.includes(agent.session.id)) {
+      diag('denied by denylist')
       return null
     }
     const allow = this.mosaic.sessionAllowlist ?? []
     if (!allow.includes('*') && !allow.includes(agent.session.id)) {
+      diag('not in allowlist')
       return null
     }
     const t0 = Date.now()
     this.lightStats = { calls: 0, tokens: 0 }
     const userCount = this.userRounds(agent.session)
     const state = this.stateOf(agent.session.id)
+    diag('R=' + userCount + ' state=' + state.light + '/' + state.heavy)
     // DECOUPLED windows (one cadence each, both seeded from the zone starts):
     //   light due → R ≥ lightStart + lightWindow (dewater, zero-LLM, cheap)
     //   heavy due → R ≥ heavyStart + heavyWindow (fold — waits until the
@@ -325,6 +354,10 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
         + ' lightTokens=' + this.lightStats.tokens : ' lightCalls=0 lightTokens=0')
       + ' heavy=none (' + (Date.now() - t0) + 'ms)')
     return null
+    } catch (err) {
+      diag('EXCEPTION: ' + (err instanceof Error ? err.message : String(err)))
+      return null
+    }
   }
 
   // ───────────────────────────────────────────────────────────────── zones
@@ -359,7 +392,7 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
    */
   private surfaceNodes(session: import('@deepseek-ai/dsh-session').Session): SurfaceEntry[] {
     const bySeq = new Map<number, import('@deepseek-ai/dsh-session').SessionEvent>()
-    for (const event of session.events) bySeq.set(event.seq, event)
+    for (const event of sessionEventList(session)) bySeq.set(event.seq, event)
     const out: SurfaceEntry[] = []
     for (const seq of session.surface.nodes) {
       const event = bySeq.get(seq)
@@ -449,13 +482,15 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
 
     const compactionId = randomUUID() as unknown as import('@deepseek-ai/dsh-compaction').CompactionId
     const turn = this.latestTurn(session)
-    const shadowedSeqs = shadowed.map(n => n.seq)
+    // 0.1.2 brands session seqs (SessionSeq) — the API accepts the branded
+    // type; surface node seqs are plain numbers from the fold state.
+    const shadowedSeqs = shadowed.map(n => seqRange(n.seq))
 
     const startEv = session.append('compaction/start', { compactionId, turn })
     const summaryEv = session.append('compaction/summary', {
       compactionId,
       summary: [{ type: 'text', text: summaryText }],
-      shadowedRange: { start: startSeq, end: endSeq },
+      shadowedRange: { start: seqRange(startSeq), end: seqRange(endSeq) },
       shadowedSeqs,
       shadowedTokenCount,
       provider: summaryMessage.provider,
@@ -468,7 +503,7 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
       content: [{ type: 'text', text: summaryText }],
       source: { kind: 'plugin', plugin: 'dsh-mosaic-memory-compress' },
     }), {
-      surfaceOp: { op: 'replace', start: startSeq, end: endSeq },
+      surfaceOp: { op: 'replace', start: seqRange(startSeq), end: seqRange(endSeq) },
       sourceEventSeqs: shadowedSeqs,
     })
     const confirm = session.append('assistant/message', {
@@ -514,7 +549,7 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
   /** Latest turn number from the session log. */
   private latestTurn(session: import('@deepseek-ai/dsh-session').Session): number {
     let turn = 0
-    for (const e of session.events) {
+    for (const e of sessionEventList(session)) {
       if (e.type === 'turn/start') turn = e.data.turn
     }
     return turn
@@ -544,14 +579,14 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
       // the context-usage projection reflects the truncation.
       if (meter !== undefined) {
         session.append('compaction/prune', {
-          shadowedRange: { start: entry.seq, end: entry.seq },
-          shadowedSeqs: [entry.seq],
+          shadowedRange: { start: seqRange(entry.seq), end: seqRange(entry.seq) },
+          shadowedSeqs: [seqRange(entry.seq)],
           shadowedTokenCount: meter.estimateMessage(entry.message),
         })
       }
       const opts = {
-        surfaceOp: { op: 'replace' as const, start: entry.seq, end: entry.seq },
-        sourceEventSeqs: [entry.seq],
+        surfaceOp: { op: 'replace' as const, start: seqRange(entry.seq), end: seqRange(entry.seq) },
+        sourceEventSeqs: [seqRange(entry.seq)],
       }
       const data = entry.event.data as Record<string, unknown>
       let replacement

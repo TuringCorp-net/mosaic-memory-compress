@@ -19,7 +19,7 @@ function seedSession(rounds: number, id = 'pipe-session'): Session {
 }
 
 function messageOf(session: Session, seq: number): string {
-  const ev = session.events.find(e => e.seq === seq)!
+  const ev = (session as any).snapshotEvents().find((e: any) => e.seq === seq)!
   const m = deriveEventMessage(ev)
   return m ? m.content.map((b: { type: string; text?: string }) => b.type === 'text' ? b.text ?? '' : '').join('') : ''
 }
@@ -40,7 +40,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
   ;(ctx as any).llm = { stream: (o: any) => stream(o) }
   ;(ctx as any).tokenMeter = {
     measure: (s: Session) => ({
-      logRevision: s.events.length,
+      logRevision: (s as any).snapshotEvents().length,
       baseline: { kind: 'none', tokens: 0 },
       surfaceDeltaTokens: 0,
       totalTokens: 0,
@@ -93,7 +93,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
   // heavy checkpoint present
   assert.ok(texts.some(t => t.includes('## HEAVY CHECKPOINT')))
   // markers present
-  const types = session.events.map(e => e.type)
+  const types = (session as any).snapshotEvents().map((e: any) => e.type)
   assert.ok(types.includes('compaction/start') && types.includes('compaction/summary') && types.includes('compaction/end'))
   console.log('3) 70 rounds: light verbatim (30), raw (10), heavy fold 70→42 PASS')
 }
@@ -136,7 +136,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
   await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
 
   const bad: string[] = []
-  for (const ev of session.events) {
+  for (const ev of (session as any).snapshotEvents()) {
     if (ev.type === 'user/message' || ev.type === 'assistant/message') {
       const id = (ev.data as any)?.message?.id ?? (ev.data as any)?.id
       if (!id) bad.push(ev.type + '@' + ev.seq)
@@ -148,9 +148,9 @@ function mockCtx(opts?: { failLight?: boolean }) {
   }
   assert.equal(bad.length, 0, 'messages missing id: ' + bad.join(','))
   // specifically the checkpoint + confirm we append
-  const checkpoint = session.events.find(e => e.type === 'user/message' && (e.data as any)?.source?.plugin === 'dsh-mosaic-memory-compress')
+  const checkpoint = (session as any).snapshotEvents().find((e: any) => e.type === 'user/message' && (e.data as any)?.source?.plugin === 'dsh-mosaic-memory-compress')
   assert.ok(checkpoint && (checkpoint.data as any).id, 'checkpoint user message missing id')
-  const confirm = session.events.find(e => e.type === 'assistant/message' && JSON.stringify(e.data?.message?.content).includes('MosaicMemory'))
+  const confirm = (session as any).snapshotEvents().find((e: any) => e.type === 'assistant/message' && JSON.stringify(e.data?.message?.content).includes('MosaicMemory'))
   assert.ok(confirm && (confirm.data as any)?.message?.id, 'confirm message missing id')
   console.log('6) identified-message constraint: all appended messages carry id PASS')
 }
@@ -191,12 +191,12 @@ console.log('pipe.spec: all scenarios passed')
   const agent = { session, options: { provider: 'mock', model: 'mock' } }
   await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   // light-only run: light = 1:1 replacements (new seqs), user-round count stays 40
-  const users = session.surface.nodes.filter(n => (session.events.find(e => e.seq === n)?.data as any)?.source?.kind === 'user')
+  const users = session.surface.nodes.filter(n => ((session as any).snapshotEvents().find((e: any) => e.seq === n)?.data as any)?.source?.kind === 'user')
   assert.equal(users.length, 40, 'light is 1:1 — user rounds unchanged at 40')
   const replacedUsers = users.filter(n => n > 40).length
   assert.ok(replacedUsers > 0, 'light replaced middle-zone nodes (got ' + replacedUsers + ')')
   // heavy must NOT have run: no mosaic checkpoint node appended
-  const checkpoint = session.events.find(e => e.type === 'user/message' && (e.data as any)?.source?.plugin === 'dsh-mosaic-memory-compress')
+  const checkpoint = (session as any).snapshotEvents().find((e: any) => e.type === 'user/message' && (e.data as any)?.source?.plugin === 'dsh-mosaic-memory-compress')
   assert.ok(!checkpoint, 'heavy fold must not run at R=40')
   console.log('9) R=40 light-only (no heavy fold, ' + replacedUsers + ' nodes replaced) PASS')
 }
@@ -210,9 +210,9 @@ console.log('pipe.spec: all scenarios passed')
   const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['pipe-session'] })
   const agent = { session, options: { provider: 'mock', model: 'mock' } }
   await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
-  const replacedUsers = session.surface.nodes.filter(n => ((session.events.find(e => e.seq === n)?.data) as any)?.source?.kind === 'user' && n > 45).length
+  const replacedUsers = session.surface.nodes.filter(n => (((session as any).snapshotEvents().find((e: any) => e.seq === n)?.data) as any)?.source?.kind === 'user' && n > 45).length
   assert.ok(replacedUsers > 0, 'R=45 light must run')
-  const checkpoint = session.events.find(e => e.type === 'user/message' && (e.data as any)?.source?.plugin === 'dsh-mosaic-memory-compress')
+  const checkpoint = (session as any).snapshotEvents().find((e: any) => e.type === 'user/message' && (e.data as any)?.source?.plugin === 'dsh-mosaic-memory-compress')
   assert.ok(!checkpoint, 'R=45: heavy must still wait (heavy needs R>=60)')
   console.log('10) R=45 light-only (mid-window dehydration, ' + replacedUsers + ' nodes) PASS')
 }
@@ -226,13 +226,13 @@ console.log('pipe.spec: all scenarios passed')
   const agentB = { session: b, options: { provider: 'mock', model: 'mock' } }
   await engine.compactIfNeeded(agentA as never, 'pressure', new AbortController().signal)
   // A folded: 70 → 40 user rounds (steady state)
-  const aUsers = a.surface.nodes.filter(n => ((a.events.find(e => e.seq === n)?.data) as any)?.source?.kind === 'user')
+  const aUsers = a.surface.nodes.filter(n => ((a.snapshotEvents().find((e: any) => e.seq === n)?.data) as any)?.source?.kind === 'user')
   assert.equal(aUsers.length, 40, 'A folded to steady 40 rounds')
   // B must NOT be gated by A's trigger: B's light is due (45-10=35 >= 30)
   await engine.compactIfNeeded(agentB as never, 'pressure', new AbortController().signal)
-  const bCheckpoint = b.events.find(e => e.type === 'user/message' && (e.data as any)?.source?.plugin === 'dsh-mosaic-memory-compress')
+  const bCheckpoint = b.snapshotEvents().find((e: any) => e.type === 'user/message' && (e.data as any)?.source?.plugin === 'dsh-mosaic-memory-compress')
   assert.ok(!bCheckpoint, 'B light-only — no heavy (R=45)')
-  const bUsers = b.surface.nodes.filter(n => ((b.events.find(e => e.seq === n)?.data) as any)?.source?.kind === 'user')
+  const bUsers = b.surface.nodes.filter(n => ((b.snapshotEvents().find((e: any) => e.seq === n)?.data) as any)?.source?.kind === 'user')
   assert.equal(bUsers.length, 45, 'B light 1:1 keeps 45 rounds')
   const bReplaced = bUsers.filter(n => n > 45).length
   assert.ok(bReplaced > 0, 'B must trigger its own light independently of A')

@@ -25,6 +25,7 @@ __export(index_exports, {
   default: () => index_default
 });
 module.exports = __toCommonJS(index_exports);
+var import_node_fs = require("fs");
 var import_dsh_compaction_basic = require("@deepseek-ai/dsh-compaction-basic");
 var import_dsh_llm = require("@deepseek-ai/dsh-llm");
 var import_dsh_session = require("@deepseek-ai/dsh-session");
@@ -84,6 +85,13 @@ var DEFAULTS = {
 };
 function isUserRound(message) {
   return message.role === "user" && message.source.kind === "user";
+}
+function seqRange(v) {
+  return v;
+}
+function sessionEventList(session) {
+  const s = session;
+  return s.snapshotEvents !== void 0 ? s.snapshotEvents() : s.events ?? [];
 }
 var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.BasicCompactionEngine {
   static inject = ["llm", "tokenMeter", "sessions"];
@@ -157,39 +165,57 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
    * below threshold or off-window. context-overflow forces a run.
    */
   async compactIfNeeded(agent, trigger, signal) {
-    const deny = this.mosaic.sessionDenylist ?? [];
-    if (deny.includes(agent.session.id)) {
+    const diag = (msg) => {
+      try {
+        (0, import_node_fs.appendFileSync)(
+          "/tmp/mosaic-diag.log",
+          (/* @__PURE__ */ new Date()).toISOString() + " " + msg + "\n"
+        );
+      } catch {
+      }
+    };
+    diag("compactIfNeeded sid=" + agent.session.id + " trigger=" + trigger);
+    try {
+      const deny = this.mosaic.sessionDenylist ?? [];
+      if (deny.includes(agent.session.id)) {
+        diag("denied by denylist");
+        return null;
+      }
+      const allow = this.mosaic.sessionAllowlist ?? [];
+      if (!allow.includes("*") && !allow.includes(agent.session.id)) {
+        diag("not in allowlist");
+        return null;
+      }
+      const t0 = Date.now();
+      this.lightStats = { calls: 0, tokens: 0 };
+      const userCount = this.userRounds(agent.session);
+      const state = this.stateOf(agent.session.id);
+      diag("R=" + userCount + " state=" + state.light + "/" + state.heavy);
+      const belowThreshold = userCount < this.mosaic.lightStart;
+      const lightDue = userCount - state.light >= this.mosaic.lightWindow;
+      const heavyDue = userCount - state.heavy >= this.mosaic.heavyWindow;
+      if (trigger !== "context-overflow" && (belowThreshold || !lightDue && !heavyDue)) {
+        console.log("[mosaic] pre-step sid=" + agent.session.id.slice(0, 8) + " R=" + userCount + " trigger=" + trigger + " no-op (" + (Date.now() - t0) + "ms)");
+        return null;
+      }
+      const zones = this.computeZones(agent);
+      let lightRan = false;
+      if (lightDue && zones.light.length > 0) {
+        await this.lightPass(agent, zones.light, signal);
+        state.light = userCount;
+        lightRan = true;
+      }
+      if (heavyDue && !zones.heavyEmpty && userCount >= this.mosaic.heavyStart) {
+        const result = await this.heavyFold(agent, zones.heavy.start, zones.heavy.end, signal);
+        console.log("[mosaic] pre-step sid=" + agent.session.id.slice(0, 8) + " R=" + userCount + " trigger=" + trigger + " TRIGGERED lightCalls=" + this.lightStats.calls + " lightTokens=" + this.lightStats.tokens + " heavyFolded=" + result.shadowedSeqs.length + " nodes (" + (Date.now() - t0) + "ms)");
+        return result;
+      }
+      console.log("[mosaic] pre-step sid=" + agent.session.id.slice(0, 8) + " R=" + userCount + " trigger=" + trigger + " TRIGGERED" + (lightRan ? " lightCalls=" + this.lightStats.calls + " lightTokens=" + this.lightStats.tokens : " lightCalls=0 lightTokens=0") + " heavy=none (" + (Date.now() - t0) + "ms)");
+      return null;
+    } catch (err) {
+      diag("EXCEPTION: " + (err instanceof Error ? err.message : String(err)));
       return null;
     }
-    const allow = this.mosaic.sessionAllowlist ?? [];
-    if (!allow.includes("*") && !allow.includes(agent.session.id)) {
-      return null;
-    }
-    const t0 = Date.now();
-    this.lightStats = { calls: 0, tokens: 0 };
-    const userCount = this.userRounds(agent.session);
-    const state = this.stateOf(agent.session.id);
-    const belowThreshold = userCount < this.mosaic.lightStart;
-    const lightDue = userCount - state.light >= this.mosaic.lightWindow;
-    const heavyDue = userCount - state.heavy >= this.mosaic.heavyWindow;
-    if (trigger !== "context-overflow" && (belowThreshold || !lightDue && !heavyDue)) {
-      console.log("[mosaic] pre-step sid=" + agent.session.id.slice(0, 8) + " R=" + userCount + " trigger=" + trigger + " no-op (" + (Date.now() - t0) + "ms)");
-      return null;
-    }
-    const zones = this.computeZones(agent);
-    let lightRan = false;
-    if (lightDue && zones.light.length > 0) {
-      await this.lightPass(agent, zones.light, signal);
-      state.light = userCount;
-      lightRan = true;
-    }
-    if (heavyDue && !zones.heavyEmpty && userCount >= this.mosaic.heavyStart) {
-      const result = await this.heavyFold(agent, zones.heavy.start, zones.heavy.end, signal);
-      console.log("[mosaic] pre-step sid=" + agent.session.id.slice(0, 8) + " R=" + userCount + " trigger=" + trigger + " TRIGGERED lightCalls=" + this.lightStats.calls + " lightTokens=" + this.lightStats.tokens + " heavyFolded=" + result.shadowedSeqs.length + " nodes (" + (Date.now() - t0) + "ms)");
-      return result;
-    }
-    console.log("[mosaic] pre-step sid=" + agent.session.id.slice(0, 8) + " R=" + userCount + " trigger=" + trigger + " TRIGGERED" + (lightRan ? " lightCalls=" + this.lightStats.calls + " lightTokens=" + this.lightStats.tokens : " lightCalls=0 lightTokens=0") + " heavy=none (" + (Date.now() - t0) + "ms)");
-    return null;
   }
   // ───────────────────────────────────────────────────────────────── zones
   /** Memory rounds = genuine user messages on the surface. */
@@ -219,7 +245,7 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
    */
   surfaceNodes(session) {
     const bySeq = /* @__PURE__ */ new Map();
-    for (const event of session.events) bySeq.set(event.seq, event);
+    for (const event of sessionEventList(session)) bySeq.set(event.seq, event);
     const out = [];
     for (const seq of session.surface.nodes) {
       const event = bySeq.get(seq);
@@ -290,12 +316,12 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
     const shadowedTokenCount = meter ? shadowed.reduce((s, n) => s + meter.estimateMessage(n.message), 0) : 0;
     const compactionId = (0, import_node_crypto.randomUUID)();
     const turn = this.latestTurn(session);
-    const shadowedSeqs = shadowed.map((n) => n.seq);
+    const shadowedSeqs = shadowed.map((n) => seqRange(n.seq));
     const startEv = session.append("compaction/start", { compactionId, turn });
     const summaryEv = session.append("compaction/summary", {
       compactionId,
       summary: [{ type: "text", text: summaryText }],
-      shadowedRange: { start: startSeq, end: endSeq },
+      shadowedRange: { start: seqRange(startSeq), end: seqRange(endSeq) },
       shadowedSeqs,
       shadowedTokenCount,
       provider: summaryMessage.provider,
@@ -305,7 +331,7 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
       content: [{ type: "text", text: summaryText }],
       source: { kind: "plugin", plugin: "dsh-mosaic-memory-compress" }
     }), {
-      surfaceOp: { op: "replace", start: startSeq, end: endSeq },
+      surfaceOp: { op: "replace", start: seqRange(startSeq), end: seqRange(endSeq) },
       sourceEventSeqs: shadowedSeqs
     });
     const confirm = session.append("assistant/message", {
@@ -344,7 +370,7 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
   /** Latest turn number from the session log. */
   latestTurn(session) {
     let turn = 0;
-    for (const e of session.events) {
+    for (const e of sessionEventList(session)) {
       if (e.type === "turn/start") turn = e.data.turn;
     }
     return turn;
@@ -366,14 +392,14 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
       const blocks = this.structuralTruncate(msg.content, isInjection);
       if (meter !== void 0) {
         session.append("compaction/prune", {
-          shadowedRange: { start: entry.seq, end: entry.seq },
-          shadowedSeqs: [entry.seq],
+          shadowedRange: { start: seqRange(entry.seq), end: seqRange(entry.seq) },
+          shadowedSeqs: [seqRange(entry.seq)],
           shadowedTokenCount: meter.estimateMessage(entry.message)
         });
       }
       const opts = {
-        surfaceOp: { op: "replace", start: entry.seq, end: entry.seq },
-        sourceEventSeqs: [entry.seq]
+        surfaceOp: { op: "replace", start: seqRange(entry.seq), end: seqRange(entry.seq) },
+        sourceEventSeqs: [seqRange(entry.seq)]
       };
       const data = entry.event.data;
       let replacement;
