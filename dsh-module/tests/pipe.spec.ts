@@ -156,3 +156,18 @@ function mockCtx(opts?: { failLight?: boolean }) {
 }
 
 console.log('pipe.spec: all scenarios passed')
+
+// 7) denylist wins over allowlist: fleet-wide ['*'] minus denylist
+{
+  const session = seedSession(60)
+  const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['*'], sessionDenylist: ['pipe-session'] })
+  const agent = { session, options: { provider: 'mock', model: 'mock' } }
+  const denied = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
+  assert.equal(denied, null, 'denylisted session must never compress')
+  assert.equal(session.surface.nodes.length, 60, 'denylisted session untouched')
+
+  const engine2 = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['*'], sessionDenylist: ['other-session'] })
+  const allowed = await engine2.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
+  assert.notEqual(allowed, null, 'fleet-wide allowlist minus denylist still compresses')
+  console.log('7) denylist gate: deny wins over allow, fleet-wide minus deny works PASS')
+}

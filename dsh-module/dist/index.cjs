@@ -79,7 +79,8 @@ var DEFAULTS = {
   heavyStart: 30,
   heavyWindow: 30,
   maxTokens: 8192,
-  sessionAllowlist: []
+  sessionAllowlist: [],
+  sessionDenylist: []
 };
 function isUserRound(message) {
   return message.role === "user" && message.source.kind === "user";
@@ -144,6 +145,10 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
    * below threshold or off-window. context-overflow forces a run.
    */
   async compactIfNeeded(agent, trigger, signal) {
+    const deny = this.mosaic.sessionDenylist ?? [];
+    if (deny.includes(agent.session.id)) {
+      return null;
+    }
     const allow = this.mosaic.sessionAllowlist ?? [];
     if (!allow.includes("*") && !allow.includes(agent.session.id)) {
       return null;

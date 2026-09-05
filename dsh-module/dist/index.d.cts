@@ -25,6 +25,14 @@ interface MosaicMemoryConfig {
      * the session id(s) they want to try.
      */
     sessionAllowlist?: string[];
+    /**
+     * Session denylist — takes precedence over the allowlist. Sessions listed
+     * here are never compressed, even when the allowlist is ['*'] or contains
+     * them. Typical use: keep one reference conversation (e.g. the developer
+     * session that knows the full picture) out of a fleet-wide rollout, so a
+     * clean, unmanaged conversation always exists for diagnosis/recovery.
+     */
+    sessionDenylist?: string[];
 }
 declare class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     static inject: string[];

@@ -202,6 +202,17 @@ config:
 Use `['*']` to allow every session (the pre-allowlist behavior). Sessions
 not listed are a zero-cost no-op.
 
+A **denylist** (`sessionDenylist`) always wins over the allowlist — it keeps
+selected sessions out of a fleet-wide rollout, e.g. one reference
+conversation that should stay unmanaged for diagnosis:
+
+```yaml
+config:
+  sessionAllowlist: ['*']              # fleet-wide
+  sessionDenylist:                     # except these
+    - fb80be2a-99aa-42e1-9de8-2f7017d2c0b6   # reference conversation, never compressed
+```
+
 A ready-to-use **DSH plugin backend** lives in
 [`dsh-module/`](dsh-module/DESIGN.md) (design docs in EN/中文).
 

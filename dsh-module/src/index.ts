@@ -69,6 +69,15 @@ export interface MosaicMemoryConfig {
    * the session id(s) they want to try.
    */
   sessionAllowlist?: string[]
+
+  /**
+   * Session denylist — takes precedence over the allowlist. Sessions listed
+   * here are never compressed, even when the allowlist is ['*'] or contains
+   * them. Typical use: keep one reference conversation (e.g. the developer
+   * session that knows the full picture) out of a fleet-wide rollout, so a
+   * clean, unmanaged conversation always exists for diagnosis/recovery.
+   */
+  sessionDenylist?: string[]
 }
 
 /** Light structural-truncation limits (mirror the library's light pass). */
@@ -120,6 +129,7 @@ const DEFAULTS: Required<MosaicMemoryConfig> = {
   heavyWindow: 30,
   maxTokens: 8192,
   sessionAllowlist: [],
+  sessionDenylist: [],
 }
 
 /** One surface node with its message payload. */
@@ -238,10 +248,14 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     trigger: CompactionTrigger,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
-    // Safety gate: only allowlisted sessions are compressed. Default []
-    // disables everything until explicitly enabled — first-time users list
-    // the session id(s) they want to try, so a bad experiment can never
-    // touch other conversations.
+    // Safety gates. Denylist always wins (keeps reference conversations out
+    // of a fleet-wide rollout). Then allowlist: only listed sessions are
+    // compressed; default [] disables everything until explicitly enabled —
+    // first-time users list exactly the session id(s) they want to try.
+    const deny = this.mosaic.sessionDenylist ?? []
+    if (deny.includes(agent.session.id)) {
+      return null
+    }
     const allow = this.mosaic.sessionAllowlist ?? []
     if (!allow.includes('*') && !allow.includes(agent.session.id)) {
       return null
