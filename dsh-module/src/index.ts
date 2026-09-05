@@ -171,9 +171,10 @@ function isUserRound(message: Message): boolean {
  * 0.1.0 had `session.events` (array); 0.1.2 removed it in favor of
  * `session.snapshotEvents()`. The module's dev/test tree pins 0.1.0-rc.x,
  * the runtime host runs 0.1.2 — support both. */
-/** 0.1.2 brands surface seqs (SessionSeq) — cast helper for number→branded. */
-function seqRange(v: number): import('@deepseek-ai/dsh-session').SessionSeq {
-  return v as unknown as import('@deepseek-ai/dsh-session').SessionSeq
+/** Surface seq brand cast — 0.1.2 brands seqs (SessionSeq); 0.1.0 types
+ * lack the brand, so stay structurally typed across both. */
+function seqRange(v: number): number & { readonly [k: string]: unknown } {
+  return v as number & { readonly [k: string]: unknown }
 }
 
 function sessionEventList(session: import('@deepseek-ai/dsh-session').Session): readonly import('@deepseek-ai/dsh-session').SessionEvent[] {

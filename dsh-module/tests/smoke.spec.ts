@@ -24,7 +24,7 @@ const replacement = createUserMessage({
   content: [{ type: 'text', text: 'round 1 DISTILLED' }],
   source: { kind: 'user' },
 })
-const seq = (v: number) => v as unknown as import('@deepseek-ai/dsh-session').SessionSeq
+const seq = (v: number) => v as number & { readonly [k: string]: unknown }
 const ev = session.append('user/message', replacement, {
   surfaceOp: { op: 'replace', start: seq(1), end: seq(1) },
   sourceEventSeqs: [seq(1)],
