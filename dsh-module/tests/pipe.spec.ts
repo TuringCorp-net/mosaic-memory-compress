@@ -71,36 +71,36 @@ function mockCtx(opts?: { failLight?: boolean }) {
   assert.equal(result, null)
 }
 
-// 3) 60 rounds: structural light (text verbatim) + heavy fold, raw untouched
+// 3) 70 rounds (heavyStart=40): light de-waters [30,60), heavy folds [0,30)
+//    → steady state 42 nodes (40 user rounds [30,70) + summary pair)
 {
-  const session = seedSession(60)
+  const session = seedSession(70)
   const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['pipe-session'] })
   const agent = { session, options: { provider: 'mock', model: 'mock' } }
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.notEqual(result, null)
   const nodes = session.surface.nodes
-  assert.equal(nodes.length, 32) // 60 - 30 + 2 (summary pair; heavyStart=30)
+  assert.equal(nodes.length, 42) // 70 - 30 folded + summary pair; steady 40 user rounds
 
   const texts = nodes.map(seq => messageOf(session, seq))
-  // light zone (30 messages, rounds 0..29): user TEXT stays verbatim
-  // (structural light never rewrites text)
-  // light zone = rounds 30..49 (20 user msgs, text verbatim)
-  const lightVerbatim = texts.filter(t => t.startsWith('user round 3') || t.startsWith('user round 4'))
-  assert.equal(lightVerbatim.length, 20)
-  // raw zone = rounds 50..59 (10 user msgs) verbatim
-  const raw = texts.filter(t => t.startsWith('user round 5'))
+  // light zone = rounds 30..59 (30 user msgs): user TEXT stays verbatim
+  // (structural light never rewrites user text)
+  const lightVerbatim = texts.filter(t => /^user round (3|4|5)\d/.test(t))
+  assert.equal(lightVerbatim.length, 30)
+  // raw zone = rounds 60..69 (10 user msgs) verbatim
+  const raw = texts.filter(t => /^user round 6\d/.test(t))
   assert.equal(raw.length, 10)
-  // heavy checkpoint present (official preamble + <compacted-summary> framing)
+  // heavy checkpoint present
   assert.ok(texts.some(t => t.includes('## HEAVY CHECKPOINT')))
   // markers present
   const types = session.events.map(e => e.type)
   assert.ok(types.includes('compaction/start') && types.includes('compaction/summary') && types.includes('compaction/end'))
-  console.log('3) 60 rounds: light text verbatim (' + lightVerbatim.length + '), raw (' + raw.length + '), heavy fold 60→31 PASS')
+  console.log('3) 70 rounds: light verbatim (30), raw (10), heavy fold 70→42 PASS')
 }
 
 // 4) structural light is pure (no LLM involvement): heavy LLM failure still completes
 {
-  const session = seedSession(60)
+  const session = seedSession(70)
   const engine = new MosaicMemoryCompactionEngine(mockCtx({ failLight: true }) as never, { sessionAllowlist: ['pipe-session'] })
   const agent = { session, options: { provider: 'mock', model: 'mock' } }
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
@@ -114,11 +114,11 @@ function mockCtx(opts?: { failLight?: boolean }) {
 
 // 5) session allowlist: non-listed session is a zero-cost no-op; listed one works
 {
-  const session = seedSession(60)
+  const session = seedSession(70)
   const engineBlocked = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['other-session'] })
   const blocked = await engineBlocked.compactIfNeeded({ session, options: { provider: 'mock', model: 'mock' } } as never, 'pressure', new AbortController().signal)
   assert.equal(blocked, null)
-  assert.equal(session.surface.nodes.length, 60) // untouched
+  assert.equal(session.surface.nodes.length, 70) // untouched
   const engineAllowed = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['pipe-session'] })
   const allowed = await engineAllowed.compactIfNeeded({ session, options: { provider: 'mock', model: 'mock' } } as never, 'pressure', new AbortController().signal)
   assert.notEqual(allowed, null)
@@ -130,7 +130,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
 //    carries a non-empty message.id (DSH enforces this at session load —
 //    a missing id breaks the whole session log).
 {
-  const session = seedSession(60)
+  const session = seedSession(70)
   const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['pipe-session'] })
   const agent = { session, options: { provider: 'mock', model: 'mock' } }
   await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
@@ -159,12 +159,12 @@ console.log('pipe.spec: all scenarios passed')
 
 // 7) denylist wins over allowlist: fleet-wide ['*'] minus denylist
 {
-  const session = seedSession(60)
+  const session = seedSession(70)
   const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['*'], sessionDenylist: ['pipe-session'] })
   const agent = { session, options: { provider: 'mock', model: 'mock' } }
   const denied = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.equal(denied, null, 'denylisted session must never compress')
-  assert.equal(session.surface.nodes.length, 60, 'denylisted session untouched')
+  assert.equal(session.surface.nodes.length, 70, 'denylisted session untouched')
 
   const engine2 = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['*'], sessionDenylist: ['other-session'] })
   const allowed = await engine2.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
@@ -217,17 +217,17 @@ console.log('pipe.spec: all scenarios passed')
   console.log('10) R=45 light-only (mid-window dehydration, ' + replacedUsers + ' nodes) PASS')
 }
 
-// 11) per-session isolation: session A at R=60 triggers, session B at R=45 still runs its own light
+// 11) per-session isolation: session A at R=70 folds, session B at R=45 still runs its own light
 {
   const engine = new MosaicMemoryCompactionEngine(mockCtx() as never, { sessionAllowlist: ['*'] })
-  const a = seedSession(60, 'session-a')
+  const a = seedSession(70, 'session-a')
   const b = seedSession(45, 'session-b')
   const agentA = { session: a, options: { provider: 'mock', model: 'mock' } }
   const agentB = { session: b, options: { provider: 'mock', model: 'mock' } }
   await engine.compactIfNeeded(agentA as never, 'pressure', new AbortController().signal)
-  // A folded: 60 → 31 user rounds
+  // A folded: 70 → 40 user rounds (steady state)
   const aUsers = a.surface.nodes.filter(n => ((a.events.find(e => e.seq === n)?.data) as any)?.source?.kind === 'user')
-  assert.ok(aUsers.length <= 31, 'A folded toward 31')
+  assert.equal(aUsers.length, 40, 'A folded to steady 40 rounds')
   // B must NOT be gated by A's trigger: B's light is due (45-10=35 >= 30)
   await engine.compactIfNeeded(agentB as never, 'pressure', new AbortController().signal)
   const bCheckpoint = b.events.find(e => e.type === 'user/message' && (e.data as any)?.source?.plugin === 'dsh-mosaic-memory-compress')

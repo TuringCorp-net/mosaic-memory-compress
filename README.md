@@ -86,7 +86,7 @@ import { mosaicMemoryCompress, type MosaicMemoryConfig } from 'mosaic-memory-com
 const config: MosaicMemoryConfig = {
   lightStart: 10,    // keep 10 most recent rounds raw (vivid)
   lightWindow: 30,   // compress every 30 rounds (aligned with heavy)
-  heavyStart: 30,    // rounds before this enter the heavy zone
+  heavyStart: 40,    // rounds before this enter the heavy zone
   heavyWindow: 30,   // heavy fold cadence (30-round interval)
   callLLM: async (systemPrompt, userInput) => {
     // Wire to OpenAI, Anthropic, or any LLM provider

@@ -76,7 +76,7 @@ survive forgetting.
 var DEFAULTS = {
   lightStart: 10,
   lightWindow: 30,
-  heavyStart: 30,
+  heavyStart: 40,
   heavyWindow: 30,
   maxTokens: 8192,
   sessionAllowlist: [],

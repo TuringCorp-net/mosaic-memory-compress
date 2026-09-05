@@ -45,7 +45,7 @@ Round 1 ────→ Round (R-heavyStart)     │ Heavy zone → ALL → 2 ms
 Round (R-heavyStart+1) → (R-lightStart) │ Light zone → structural truncation, count unchanged
 Round (R-lightStart+1) ──→ Round R      │ Raw zone  → keep as-is
 
-Default boundaries (2026-08-26): lightStart=10, heavyStart=30 — 10 vivid
+Default boundaries (2026-09-05): lightStart=10, heavyStart=40 — 10 vivid
 rounds, 20 dehydrating rounds, everything older folded.
 ```
 
@@ -102,7 +102,7 @@ interface MosaicMemoryConfig {
 
 ## 5. Steady-State Message Count
 
-With default parameters (`lightStart=10, lightWindow=30, heavyStart=30, heavyWindow=30`):
+With default parameters (`lightStart=10, lightWindow=30, heavyStart=40, heavyWindow=30`):
 
 ```
 Heavy zone: 2 msgs   (1 user summary + 1 assistant confirmation)
@@ -139,7 +139,7 @@ import { mosaicMemoryCompress, type MosaicMemoryConfig, type Message } from 'mos
 const config: MosaicMemoryConfig = {
   lightStart: 10,
   lightWindow: 30,
-  heavyStart: 30,
+  heavyStart: 40,
   heavyWindow: 30,
   callLLM: async (systemPrompt, userInput) => {
     // Wire to your own LLM provider

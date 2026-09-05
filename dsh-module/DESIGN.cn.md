@@ -125,7 +125,7 @@ if (count % lightWindow !== 0) return null   // 不在窗口边界（防抖）
   config:
     lightStart: 10
     lightWindow: 30
-    heavyStart: 30
+    heavyStart: 40
     heavyWindow: 30
     maxTokens: 8192
     # 安全闸门：仅压缩列出的会话。默认 [] = 全禁用；['*'] = 全部会话。

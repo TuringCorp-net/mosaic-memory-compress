@@ -270,7 +270,7 @@ async function run(): Promise<void> {
   // ── 17 ──
   section('17. Heavy LLM returns Markdown-fenced JSON → parsed correctly');
   {
-    const msgs = makeConv(60);
+    const msgs = makeConv(70);
     const cfg = { ...DEFAULT_CONFIG, callLLM: async (_sp: string, _in: string) =>
       'Here:\n' + String.fromCharCode(96).repeat(3) + 'json\n'
       + JSON.stringify([{ role: 'user', content: 'H-U' }, { role: 'assistant', content: 'H-A' }])
@@ -449,6 +449,6 @@ run().catch(err => { console.error(err); (globalThis as any).process?.exit?.(1);
   {
     check('lightStart 10', DEFAULT_CONFIG.lightStart === 10);
     check('lightWindow 30', DEFAULT_CONFIG.lightWindow === 30);
-    check('heavyStart 30', DEFAULT_CONFIG.heavyStart === 30);
+    check('heavyStart 40', DEFAULT_CONFIG.heavyStart === 40);
     check('heavyWindow 30', DEFAULT_CONFIG.heavyWindow === 30);
   }

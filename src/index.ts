@@ -94,7 +94,7 @@ export interface CompressEvent {
 export const DEFAULT_CONFIG: Omit<MosaicMemoryConfig, 'callLLM'> = {
   lightStart: 10,
   lightWindow: 30,
-  heavyStart: 30,
+  heavyStart: 40,
   heavyWindow: 30,
 };
 

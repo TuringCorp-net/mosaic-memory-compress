@@ -144,7 +144,7 @@ a run. Returning `null` means nothing happens this step — the zero-cost path.
   config:
     lightStart: 10
     lightWindow: 30
-    heavyStart: 30
+    heavyStart: 40
     heavyWindow: 30
     maxTokens: 8192
     # Safety gate: only these sessions are compressed. Default [] = disabled.
