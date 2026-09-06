@@ -164,39 +164,42 @@ results), not text — context compression should handle structured payloads fir
   in-memory, so one full re-truncation happens after restart (persist later if
   needed)
 
-## 14. Cache-breakpoint cost: the cost model of continuous compaction (2026-08-16)
+## 14. Cache-breakpoint cost: first model of continuous compaction (2026-08-16)
+> **SUPERSEDED in its multipliers by field measurement — see §16 (2026-09-06).**
+> The 2026-08-16 run was the heavyStart=30 era, single-shot fold at ~50 rounds:
+> hit rate 99.7% → 4.2% measured; the "~10× session cost" / "N=10 is 10-15×"
+> figures were extrapolations from that one fold, not measured steady state.
+> Production numbers (light 1:1 pass and heavy fold, aligned 10/40/30/30
+> config) show per-window taxes of $0.02-0.10 repaid ~2-10× within the same
+> window by surface savings — see §16. Historical measurement kept for the
+> mechanism description below.
 
-**Measured**: the compression request dropped cache hit rate 99.7% → 4.2%
-(290k tokens missed wholesale at 30× price), recovering to 99.9% immediately
-after. Session cost was ~10× a non-compressed session.
+**Measured (2026-08-16)**: the compression request dropped cache hit rate
+99.7% → 4.2% (290k tokens missed wholesale at 30× price), recovering to
+99.9% immediately after.
 
-**Mechanism**: DeepSeek automatic prefix caching matches from the head; any edit
-of sent history moves the breakpoint forward and everything after it misses
-(the raw zone is affected too — matching is continuous, not per-zone).
+**Mechanism (still valid)**: DeepSeek automatic prefix caching matches from
+the head; any edit of sent history moves the breakpoint forward and
+everything after it misses. Two field-verified shapes (2026-09-06):
+mid-surface 1:1 replacement (light) keeps the prefix up to the first
+replaced node (~97% hit on the next request); head replacement (heavy fold)
+breaks the whole prefix — structurally unavoidable, see §16.
 
-**Cost model (tunable)**: the tax ≈ surface×30/N per round amortized. N=10 is
-~10-15× the no-compression incremental tax; larger N (20/50/100) amortizes
-linearly. The balance point is set by cost sensitivity vs the need for unbounded
-dialogue — parameterized, not a structural dead end.
+**General lesson**: context-compression algorithms must put the
+cache-breakpoint cost into the cost model; on automatic-prefix-cache
+providers, in-place history edits need an explicit window/frequency
+tradeoff, not an assumed free lunch.
 
-**Value comparison**: the tax buys bounded surface + unbounded dialogue; the
-official brief mode has zero tax but every reset makes the model a stranger.
-The core value (fresh recent memory + progressively fuzzier ancient memory —
-the biological forgetting curve) survives the tradeoff.
+## 15. Parameter finalization 10/40/30/30 + cost verification (2026-08-26, amended 2026-09-05)
 
-**v2 direction**: reset-moment enhancement (ROADMAP M5) — inject refined recent
-rounds at new-session/brief moments; zero cache cost; philosophy preserved.
-
-**General lesson**: context-compression algorithms must put the cache-breakpoint
-cost into the cost model; on automatic-prefix-cache providers, in-place history
-edits need an explicit window/frequency tradeoff, not an assumed free lunch.
-
-## 15. Parameter finalization 10/30/30/30 + cost verification (2026-08-26)
-
-**Finalized config**: lightStart=10, lightWindow=30, heavyStart=30, heavyWindow=30
-(three-tier memory: 10 vivid rounds + 20 dehydrating rounds + fold before round
-30; light/heavy windows strictly aligned so every cache miss does truncation
-and fold in one request).
+**Finalized config**: lightStart=10, lightWindow=30, heavyStart=40,
+heavyWindow=30 — light and heavy cadences DECOUPLED per-session, light zone
+exactly one window wide (30 rounds: [R-40, R-10)) so every batch entering the
+heavy zone arrives already dewatered; light first runs at R=40, heavy first
+at R=70, both aligned at 70/100/130 (same pre-step, same cache miss).
+Steady state: summary pair + 40 user rounds (≤41 messages per round).
+(The 2026-08-26 finalization of 10/30/30/30 was superseded on 2026-09-05 by
+the decoupled-cadence design above; scenario tests re-seeded 60→70.)
 
 **Rolling simulation over a real 165-round conversation**:
 - heavy folds: 4 (rounds 60/90/120/150, exactly 30-round intervals)
@@ -238,3 +241,26 @@ cost sits well below 1.8×, dominated by the surface the raw zone keeps vivid.
 zone's position in the surface matters — earlier light zones break more
 prefix. Zone positions are age-relative, so the break stays bounded by the
 40-round steady state.)
+
+## 17. Field cost measurement: heavy fold (2026-09-06, same session, R≥70)
+
+First production heavy fold after the 0.1.2 fix — surface head replacement,
+1000 nodes / 247,829 tokens → 7,672-char memory node (~10s LLM stall):
+
+- Next-request cache accounting: cacheRead 490,752 → 2,688 (99.9% → 1.6%
+  hit); miss 193 → 165,287 tokens → fold tax ≈ $0.046
+- Fold LLM call: not metered in the event stream (no usage on
+  compaction/summary) — estimated ≈ $0.05 for the pre-dewatered ~100-250K
+  input
+- Surface 491K → 168K (−66%; context usage 49% → ~25%); second request
+  after the fold already back at 99.6% hits
+- 30-window ledger: fold tax + LLM ≈ $0.10 one-time; each following request
+  bills ~322K fewer surface tokens ≈ $0.009/round → ≈ $0.27/window →
+  **net ≈ +$0.15-0.17 per window — steady-state cost goes DOWN, no 2× regime**
+
+**Structural**: requests are time-ordered (oldest first) and the fold target
+is by definition the head — prefix caches match from token 0, so a head fold
+cannot keep any prefix (three constraints: time order / oldest-first
+compression / prefix-from-head). Head tax is unavoidable; bounded by keeping
+the fold input pre-dewatered. Newest-first layout would break the prefix on
+every message instead — no free layout exists.

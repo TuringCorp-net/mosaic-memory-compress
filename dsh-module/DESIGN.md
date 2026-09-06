@@ -7,8 +7,8 @@
 
 Three zones, computed from the conversation surface:
 
-- **Raw zone (recent N rounds, default 30)** — untouched, zero overhead
-- **Light zone (next M rounds, default 20)** — structural truncation,
+- **Raw zone (recent N rounds, default 10)** — untouched, zero overhead
+- **Light zone (next M rounds, default 30 = heavyStart − lightStart)** — structural truncation,
   message count unchanged
 - **Heavy zone (older rounds)** — folded into ONE bounded checkpoint that
   never exceeds its cap (incremental summary-of-summary)

@@ -73,7 +73,7 @@ skip them.
 Compress the entire Heavy zone into exactly 2 messages — a summary pair.
 
 ```
-Before (50 rounds = 100 messages, possibly already light-compressed):
+Before (default config, e.g. 70 rounds, the oldest 30 already dewatered):
   [many messages spanning early worldbuilding, character decisions, plot discussions...]
 
 After (2 messages):
@@ -92,7 +92,7 @@ After (2 messages):
 interface MosaicMemoryConfig {
   lightStart: number;   // Rounds to keep raw. Default 10
   lightWindow: number;  // Anti-jitter for Light. Default 30 (aligned with heavy)
-  heavyStart: number;   // Rounds before this enter Heavy zone. Default 30
+  heavyStart: number;   // Rounds before this enter Heavy zone. Default 40
   heavyWindow: number;  // Anti-jitter for Heavy. Default 30
   callLLM?: (systemPrompt: string, userInput: string) => Promise<string>; // Heavy only; omit for light-only usage
 }
@@ -211,11 +211,11 @@ therefore direct consequences of the exact model.
 
 Real human-AI conversation round counts:
 
-| Scenario | Rounds | Two-level coverage |
+| Scenario | Rounds | Two-level coverage (default 10/40/30/30) |
 |---|---|---|
-| Simple errand | 3-5 | no trigger (<30), zero cost |
-| Complex feature | 20-30 | boundary trigger |
-| Large project | 40-70 | Light + Heavy once each |
+| Simple errand | 3-5 | no trigger (<40), zero cost |
+| Complex feature | 20-40 | light-only (dewatered from R=40) |
+| Large project | 40-70 | Light first at R=40, Heavy fold at R=70 |
 | Thousand-round dialogue | does not exist | the multi-level model's only target |
 
 The multi-level model (g = 1,2,5,10,20…) would pay — for a scenario that
@@ -259,11 +259,12 @@ session: 99.7% → 4.2% hit rate on the compression request, recovering to
 99.9% immediately after.
 
 The tax is **per-window, not per-message**: one full-miss request every N
-rounds, amortized ≈ surface×30/N per round. N=10 measured ~10× conversation
-cost; N=20/50 halves/quarters it. This is a parameterized tradeoff — the tax
-buys bounded surface and unbounded dialogue, and can be tuned to the host's
-cost sensitivity. (Zero-tax alternative: reset-moment enhancement — see
-ROADMAP M5.)
+rounds, amortized ≈ surface×30/N per round. Early extrapolation (2026-08-16,
+single-shot fold era) suggested "N=10 ≈ 10× conversation cost"; field
+measurement under the aligned 10/40/30/30 config (2026-09-06, below) shows
+the per-window taxes ($0.02–0.10) are repaid 2–10× within the same window —
+the multipliers below are superseded by the measurements that follow.
+(Zero-tax alternative: reset-moment enhancement — see ROADMAP M5.)
 
 **Field measurement (2026-09-06, live DSH session 85cd44e7, light pass on a
 55-round workflow conversation).** The heavy-fold numbers above describe the
@@ -288,6 +289,30 @@ the light tax is one order of magnitude smaller than the surface savings it
 buys, and the heavy fold happens once per 30 rounds with a bounded,
 already-dewatered input.
 
+**Heavy fold field measurement (2026-09-06, same live session, R reached the
+70-round fold).** The heavy fold replaces the oldest 30 rounds with one
+summary pair at the surface head — the next request shows a FULL cache break
+(cacheRead 490,752 → 2,688; miss 193 → 165,287 tokens ≈ $0.046 at
+$0.28/M), plus the fold's own LLM call (~10s stall; cost not metered in the
+event stream, estimated ≈ $0.05 for ~100-250K input tokens). Surface dropped
+491K → 168K (−66%; context usage 49% → ~25%). The second request after the
+fold is already back to 99.6% cache hits.
+
+**Structural note: a head-fold always breaks the whole prefix.** Requests are
+time-ordered (oldest first) because that layout maximizes prefix stability
+(new content lands at the tail); the fold target is by definition the oldest
+content = the head; prefix caches match from the first token — so replacing
+the head cannot keep any prefix. This is structural (three constraints:
+time order / oldest-first compression / prefix-from-head), not a layout bug.
+The mirror-image layout (newest first) would break the prefix on every new
+message instead. Keeping the fold input small (pre-dewatered) bounds the
+LLM call; the head tax itself is unavoidable and is amortized: fold tax +
+LLM ≈ $0.10 per 30-round window vs ≈ $0.27 of surface savings across the
+same window (each of ~30 following requests bills ~322K fewer tokens) →
+net ≈ +$0.15-0.17 per window, cost DOWN. No "2× cost" regime was observed
+in production; the earlier theoretical multipliers described the
+heavyStart=30 single-shot era and are superseded by these field numbers.
+
 
 ## 9. Empirical Case Study: One Event, Three Memory Carriers
 
@@ -307,8 +332,9 @@ two ways:
 
 - *Archival* (industry default): one threshold-triggered full summary,
   leaving only a structured brief;
-- *Mnemonic* (this library): recent 30 rounds verbatim, older rounds distilled
-  per message, ancient rounds merged into a constant-size summary.
+- *Mnemonic* (this library, as configured at experiment time — the earlier
+  30-round raw window): recent rounds verbatim, older rounds distilled per
+  message, ancient rounds merged into a constant-size summary.
 
 **The results.**
 

@@ -64,25 +64,34 @@ while preserving pairing integrity for OpenAI-compatible downstream validation.
 
 ## M5 (direction): cost tradeoff & reset-moment enhancement (v2 form)
 
-**Cost model discovered by measurement (2026-08-16)**: continuous in-place
-compaction (Light/Heavy replacement) has a structural cost on providers with
-automatic prefix caching — any edit of sent history breaks the cache prefix,
-and the compression request misses entirely (30× price; measured hit rate
-99.7% → 4.2%). This is a per-window "cache-breakpoint tax", balanced against
-the tokens saved by the window parameter (N=10 measured ~10× conversation
-cost; larger N amortizes it).
+**Cost model — field-verified 2026-09-06** (production session; supersedes the
+2026-08-16 single-fold extrapolation of "~10× session cost"): in-place
+compaction taxes prefix caches per window, and the tax is repaid within the
+same window by the surface it frees:
 
-**Value judgment**: the tax buys **bounded surface + unbounded dialogue** —
-official brief mode has no tax, but every reset turns the model into a
-stranger who read a briefing. The irreplaceable value of MosaicMemoryCompress
-(fresh recent memory, progressively fuzzier ancient memory — the biological
-forgetting curve) is exactly what this tradeoff preserves.
+- light pass (mid-surface 1:1 dewatering): prefix survives to the first
+  replaced node (~97% next-request hit); one-time tax ≈ 80K tokens ≈
+  $0.015-0.04 vs ≈ $0.20 of surface savings over the following ~30 requests
+  (553K → 313K surface)
+- heavy fold (head replacement): full prefix break by structure (requests
+  are time-ordered, fold target is the head, prefix matches from token 0 —
+  no layout avoids it); tax ≈ $0.046 + fold LLM ≈ $0.05 vs ≈ $0.27 of
+  savings over the window (491K → 168K surface) → net ≈ +$0.15-0.17/window
+- steady state: **cost goes DOWN, not up** — no 2× regime was observed in
+  production; earlier multipliers described the heavyStart=30 single-shot era
+
+**Value judgment**: the per-window tax buys **bounded surface + unbounded
+dialogue** — official brief mode has zero tax but every reset turns the model
+into a stranger who read a briefing. The irreplaceable value of
+MosaicMemoryCompress (fresh recent memory, progressively fuzzier ancient
+memory — the biological forgetting curve) is exactly what this tradeoff
+preserves.
 
 **Tunable knobs (parameterized balance)**:
 - compression window N (default 30): tax amortization vs surface growth
 - three-zone ratios (raw/light/heavy boundaries): continuous tuning of memory
   clarity vs context pressure
-- future: reset-moment enhancement (below) can zero the tax
+- future: reset-moment enhancement (below) can zero the tax entirely
 
 **v2 form: reset-moment enhancement** (no continuous compaction — enhance
 only at reset moments):
@@ -96,8 +105,10 @@ v2 benefits: zero cache cost (a new session's first miss is existing
 behavior), better memory continuity than a pure brief, bounded surface, and
 minimal implementation (reuses existing components).
 
-**Status**: parameters finalized (10/30/30/30, 2026-08-26) with cost verified
-at ~1.8× baseline for long sessions and zero cost for short ones — continuous
+**Status**: parameters finalized (10/40/30/30, 2026-09-05: decoupled light/heavy
+cadences, light zone one window wide so the heavy fold always receives
+dewatered input) — cost field-verified (2026-09-06) as net-negative per
+window for long sessions, zero cost for short ones; continuous
 compaction is the active mode, with re-deployment in progress. M2-M4 results
 are fully preserved; M5 remains an evolution direction (the zero-tax
 reset-moment form).

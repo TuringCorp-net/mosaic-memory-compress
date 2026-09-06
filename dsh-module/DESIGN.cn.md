@@ -9,8 +9,8 @@
 
 三个分区，按对话表面计算：
 
-- **Raw 区（最近 N 轮，默认 30）**——原样保留，零开销
-- **Light 区（随后 M 轮，默认 20）**——逐条消息蒸馏，消息数不变
+- **Raw 区（最近 N 轮，默认 10）**——原样保留，零开销
+- **Light 区（随后 M 轮，默认 30：heavyStart−lightStart）**——逐条消息脱水，消息数不变
 - **Heavy 区（更早轮次）**——折叠为单个永不超上限的 checkpoint（增量式摘要之摘要）
 
 ## 二、工作原理
@@ -102,7 +102,7 @@ if (count % lightWindow !== 0) return null   // 不在窗口边界（防抖）
 新会话/重启后首次使用时全量初始化一次。因此 no-op 路径恒定 O(1)，
 与对话长度无关，且计数永远与 surface 真实状态一致。
 
-`lightWindow`（默认 10）是防抖窗口：只在窗口边界压缩。`context-overflow`
+`lightWindow`（默认 30）是防抖窗口。`context-overflow`
 可绕过窗口强制触发。返回 `null` = 本次什么都不做（零成本路径）。
 
 ## 四、用到的 DSH 扩展点

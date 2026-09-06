@@ -48,9 +48,9 @@ rules, the relationship. The algorithm reproduces that curve inside one
 message array:
 
 ```
-recent 30 rounds   → verbatim (vivid — what you are actually working on)
-rounds 30–50       → structural truncation (reasoning/args/results trimmed, text kept)
-rounds 50+         → one heavy pair: identity, environment, permissions, rules
+recent 10 rounds   → verbatim (vivid — what you are actually working on)
+rounds 10–40       → structural truncation (reasoning/args/results trimmed, text kept)
+rounds 40+         → one heavy pair: identity, environment, permissions, rules
 ```
 
 No switch moment, no reset, no length limit. The heavy zone is *semantic
