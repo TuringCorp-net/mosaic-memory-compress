@@ -6,6 +6,11 @@ Dates are local (Asia/Shanghai).
 ## v1.3.4 — 2026-09-10
 
 **First npm-publishable release + the 0.1.5 upgrade hazard documented.**
+Published to npm as `mosaic-memory-compress@1.3.4` (npm account `turingcorp`)
+and verified end-to-end from the registry: `dsh plugin --profile web add
+mosaic-memory-compress` into a clean `DSH_HOME` installs, boots and constructs
+the engine, and `npm install mosaic-memory-compress` imports and compresses
+(light: count kept, reasoning trimmed).
 
 - **Fixed (packaging)**: the library entry pointed at TypeScript source
   (`main`/`types`/`exports` → `src/index.ts`), which plain Node cannot import.
