@@ -232,6 +232,27 @@ function probeReplaceFields(): ReplaceFields {
   }
 }
 
+/** Read either spelling's range bounds (0.1.0/0.1.2 `start|end`,
+ * 0.1.5+ `startSeq|endSeq`). */
+export function opStartOf(op: unknown): unknown {
+  const o = op as Record<string, unknown>
+  return o['startSeq'] ?? o['start']
+}
+export function opEndOf(op: unknown): unknown {
+  const o = op as Record<string, unknown>
+  return o['endSeq'] ?? o['end']
+}
+
+/** The host rejected a replace surfaceOp — flip the spelling and retry once. */
+function isInvalidReplaceOp(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error)
+  return msg.includes('invalid replace surfaceOp')
+}
+
+function flipReplaceFields(): void {
+  replaceFields = replaceFields === 'seq' ? 'legacy' : 'seq'
+}
+
 /** The replace surfaceOp for the running DSH, with exactly three keys.
  * Typed `never` so it satisfies either version's SurfaceOp shape (the runtime
  * spelling is what each version validates). */
@@ -319,7 +340,7 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
         const c = this.roundCounts.get(session.id)
         if (c !== undefined) this.roundCounts.set(session.id, c + 1)
       } else if (op !== 'append' && op.op === 'replace'
-        && op.start !== op.end) {
+        && opStartOf(op) !== opEndOf(op)) {
         // Range fold (heavy checkpoint or any third-party compaction):
         // visible user-round count may have changed → recompute on next use.
         this.dirtySessions.add(session.id)
@@ -564,13 +585,10 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     // DSH requires every user/assistant message to carry a non-empty
     // message.id ("identified message", enforced at session load). Factory
     // constructors assign the stable id — never hand-build message objects.
-    const checkpointUser = session.append('user/message', createUserMessage({
+    const checkpointUser = this.appendReplacement(session, 'user/message', createUserMessage({
       content: [{ type: 'text', text: summaryText }],
       source: { kind: 'plugin', plugin: 'dsh-mosaic-memory-compress' },
-    }), {
-      surfaceOp: replaceOp(startSeq, endSeq),
-      sourceEventSeqs: shadowedSeqs,
-    })
+    }), startSeq, endSeq, shadowedSeqs)
     const confirm = session.append('assistant/message', {
       turn,
       step: 0,
@@ -620,6 +638,45 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     return turn
   }
 
+  /**
+   * Append a replacement event with field-spelling self-correction.
+   *
+   * The probe above can guess wrong when module resolution is shadowed: a dev
+   * tree's own `node_modules/@deepseek-ai/dsh-session` sits next to the
+   * published dist and wins the `import`, so the probe validates against the
+   * WRONG implementation while the host validates with its own. The host's
+   * error is the authority: on "invalid replace surfaceOp" we flip the
+   * spelling (cached for the process) and retry the append once. A rejected
+   * append leaves no event behind, so the retry is safe.
+   */
+  private appendReplacement(
+    session: import('@deepseek-ai/dsh-session').Session,
+    type: string,
+    data: unknown,
+    start: number,
+    end: number,
+    sourceEventSeqs: readonly number[],
+  ): import('@deepseek-ai/dsh-session').SessionEvent {
+    // The append entry point is typed per-host-version; the call is
+    // deliberately untyped because the payload is only known at runtime.
+    const attempt = (): import('@deepseek-ai/dsh-session').SessionEvent =>
+      (session as unknown as {
+        append: (t: string, d: unknown, o: unknown) => import('@deepseek-ai/dsh-session').SessionEvent
+      }).append(type, data, {
+        surfaceOp: replaceOp(start, end),
+        sourceEventSeqs: sourceEventSeqs.map(seqRange),
+      })
+    try {
+      return attempt()
+    } catch (error) {
+      if (!isInvalidReplaceOp(error)) throw error
+      flipReplaceFields()
+      console.log('[mosaic-memory-compact] replace surfaceOp spelling self-corrected to '
+        + replaceFields + ' (host validation won over the probe)')
+      return attempt()
+    }
+  }
+
   // ───────────────────────────────────────────────────────────────── light
 
   /**
@@ -649,32 +706,28 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
           shadowedTokenCount: meter.estimateMessage(entry.message),
         })
       }
-      const opts = {
-        surfaceOp: replaceOp(entry.seq, entry.seq),
-        sourceEventSeqs: [seqRange(entry.seq)],
-      }
       const data = entry.event.data as Record<string, unknown>
       let replacement
       if (msg.role === 'assistant') {
         // Keep tool-call blocks (pairing) intact; truncate the rest structurally.
-        replacement = session.append('assistant/message', {
+        replacement = this.appendReplacement(session, 'assistant/message', {
           turn: data.turn as number,
           step: data.step as number,
           ...data,
           message: { ...msg, content: blocks } as import('@deepseek-ai/dsh-llm').AssistantMessage,
-        }, opts)
+        }, entry.seq, entry.seq, [entry.seq])
       } else if (msg.source.kind === 'tool') {
-        replacement = session.append('tool/result', {
+        replacement = this.appendReplacement(session, 'tool/result', {
           turn: data.turn as number,
           step: data.step as number,
           ...data,
           message: { ...msg, content: blocks } as import('@deepseek-ai/dsh-llm').ToolResultMessage,
-        }, opts)
+        }, entry.seq, entry.seq, [entry.seq])
       } else {
-        replacement = session.append('user/message', {
+        replacement = this.appendReplacement(session, 'user/message', {
           ...msg,
           content: blocks,
-        } as import('@deepseek-ai/dsh-llm').UserMessage, opts)
+        } as import('@deepseek-ai/dsh-llm').UserMessage, entry.seq, entry.seq, [entry.seq])
       }
       this.distilledSeqs.add(replacement.seq)
     }

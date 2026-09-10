@@ -294,8 +294,38 @@ thresholds (lightStart=1/W1/heavyStart=2/W1), session still loads cleanly.
 unconditional /tmp write, added 2026-09-05 for the journald-buffering hunt);
 dsh-module version → 0.2.0.
 
+**Follow-up — the probe alone was not enough (same day).** With the module
+mounted by symlinking the *dev checkout* into `profiles/node_modules`, the
+dist's own `dsh-module/node_modules/@deepseek-ai/dsh-session` (0.1.0-rc.6, a
+dev dependency) shadows the host's: `import` resolves to the dev copy, so the
+probe validated against 0.1.0's rules and chose `legacy` while the 0.1.5 host
+rejected it. Two fixes, both applied:
+
+1. **Write-side self-correction (authoritative)**: `appendReplacement()`
+   catches `invalid replace surfaceOp`, flips the spelling (cached per
+   process), and retries once. A rejected append leaves no event, so the retry
+   is safe. Module resolution can no longer decide correctness — the host's
+   own validation does. Reproduced and verified by mounting the dev checkout
+   (shadowed) against a 0.1.5 session: probe logs `legacy`, first append is
+   rejected, correction flips to `seq`, light + heavy both land, and 0.1.5's
+   `foldSurface` re-accepts the compressed log.
+2. **Install instead of symlink the checkout**: `npm pack` the repo (the
+   tarball carries no `node_modules`) and unpack it into
+   `profiles/node_modules/mosaic-memory-compress`. The dist then resolves
+   `@deepseek-ai/*` from the profile (the host's own runtime) and the probe
+   selects `seq` on the first try. Applied to both the production profile and
+   the 0.1.5 test instance; verify with
+   `node -e "console.log(require('<profile>/node_modules/mosaic-memory-compress/dsh-module/dist/index.cjs').detectedReplaceFields())"`.
+
+**Read-side companion fix**: the `session/event` listener detected range folds
+via `op.start !== op.end`; on 0.1.5 those keys are `undefined`, so a fold
+never invalidated the per-session round counter. Now `opStartOf(op) !==
+opEndOf(op)` reads either spelling.
+
 **Lesson**: the 0.1.2 event-name change (session.events → snapshotEvents) and
 this 0.1.5 field rename are the same class of breakage — host API drift that
-stays invisible until a compressing path runs. Probe capabilities at runtime
-and keep the legacy path as the fallback; never assume the API you compiled
-against is the API you run on.
+stays invisible until a compressing path runs. Probe capabilities at runtime,
+keep the legacy path as the fallback, AND make the write path self-correcting:
+a probe can only be as right as the module resolution it runs under, so let
+the host's validation be the final word. Also: never mount a dev checkout by
+symlink when it carries its own dependency tree.

@@ -52,6 +52,10 @@ interface MosaicMemoryConfig {
  * conservative choice for the 0.1.x line the module originally targeted.
  */
 type ReplaceFields = 'seq' | 'legacy';
+/** Read either spelling's range bounds (0.1.0/0.1.2 `start|end`,
+ * 0.1.5+ `startSeq|endSeq`). */
+declare function opStartOf(op: unknown): unknown;
+declare function opEndOf(op: unknown): unknown;
 /** Test/diagnostic hook: which spelling the probe selected. */
 declare function detectedReplaceFields(): ReplaceFields;
 declare class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
@@ -138,6 +142,18 @@ declare class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     /** Latest turn number from the session log. */
     private latestTurn;
     /**
+     * Append a replacement event with field-spelling self-correction.
+     *
+     * The probe above can guess wrong when module resolution is shadowed: a dev
+     * tree's own `node_modules/@deepseek-ai/dsh-session` sits next to the
+     * published dist and wins the `import`, so the probe validates against the
+     * WRONG implementation while the host validates with its own. The host's
+     * error is the authority: on "invalid replace surfaceOp" we flip the
+     * spelling (cached for the process) and retry the append once. A rejected
+     * append leaves no event behind, so the retry is safe.
+     */
+    private appendReplacement;
+    /**
      * Per-node 1:1 surface replacement over the light zone.
      * Pure structural truncation — synchronous, zero LLM calls.
      */
@@ -174,4 +190,4 @@ declare class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
 /** Cordis plugin entry. */
 declare function apply(ctx: Context, config?: Partial<MosaicMemoryConfig>): void;
 
-export { MosaicMemoryCompactionEngine, type MosaicMemoryConfig, apply, MosaicMemoryCompactionEngine as default, detectedReplaceFields };
+export { MosaicMemoryCompactionEngine, type MosaicMemoryConfig, apply, MosaicMemoryCompactionEngine as default, detectedReplaceFields, opEndOf, opStartOf };

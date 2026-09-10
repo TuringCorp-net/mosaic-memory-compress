@@ -23,7 +23,9 @@ __export(index_exports, {
   MosaicMemoryCompactionEngine: () => MosaicMemoryCompactionEngine,
   apply: () => apply,
   default: () => index_default,
-  detectedReplaceFields: () => detectedReplaceFields
+  detectedReplaceFields: () => detectedReplaceFields,
+  opEndOf: () => opEndOf,
+  opStartOf: () => opStartOf
 });
 module.exports = __toCommonJS(index_exports);
 var import_node_fs = require("fs");
@@ -121,6 +123,21 @@ function probeReplaceFields() {
     return "legacy";
   }
 }
+function opStartOf(op) {
+  const o = op;
+  return o["startSeq"] ?? o["start"];
+}
+function opEndOf(op) {
+  const o = op;
+  return o["endSeq"] ?? o["end"];
+}
+function isInvalidReplaceOp(error) {
+  const msg = error instanceof Error ? error.message : String(error);
+  return msg.includes("invalid replace surfaceOp");
+}
+function flipReplaceFields() {
+  replaceFields = replaceFields === "seq" ? "legacy" : "seq";
+}
 function replaceOp(start, end) {
   replaceFields ??= probeReplaceFields();
   return replaceFields === "seq" ? { op: "replace", startSeq: seqRange(start), endSeq: seqRange(end) } : { op: "replace", start: seqRange(start), end: seqRange(end) };
@@ -189,7 +206,7 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
       if (event.type === "user/message" && op === "append" && event.data?.source?.kind === "user") {
         const c = this.roundCounts.get(session.id);
         if (c !== void 0) this.roundCounts.set(session.id, c + 1);
-      } else if (op !== "append" && op.op === "replace" && op.start !== op.end) {
+      } else if (op !== "append" && op.op === "replace" && opStartOf(op) !== opEndOf(op)) {
         this.dirtySessions.add(session.id);
       }
     });
@@ -362,13 +379,10 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
       provider: summaryMessage.provider,
       model: summaryMessage.model
     });
-    const checkpointUser = session.append("user/message", (0, import_dsh_llm.createUserMessage)({
+    const checkpointUser = this.appendReplacement(session, "user/message", (0, import_dsh_llm.createUserMessage)({
       content: [{ type: "text", text: summaryText }],
       source: { kind: "plugin", plugin: "dsh-mosaic-memory-compress" }
-    }), {
-      surfaceOp: replaceOp(startSeq, endSeq),
-      sourceEventSeqs: shadowedSeqs
-    });
+    }), startSeq, endSeq, shadowedSeqs);
     const confirm = session.append("assistant/message", {
       turn,
       step: 0,
@@ -410,6 +424,31 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
     }
     return turn;
   }
+  /**
+   * Append a replacement event with field-spelling self-correction.
+   *
+   * The probe above can guess wrong when module resolution is shadowed: a dev
+   * tree's own `node_modules/@deepseek-ai/dsh-session` sits next to the
+   * published dist and wins the `import`, so the probe validates against the
+   * WRONG implementation while the host validates with its own. The host's
+   * error is the authority: on "invalid replace surfaceOp" we flip the
+   * spelling (cached for the process) and retry the append once. A rejected
+   * append leaves no event behind, so the retry is safe.
+   */
+  appendReplacement(session, type, data, start, end, sourceEventSeqs) {
+    const attempt = () => session.append(type, data, {
+      surfaceOp: replaceOp(start, end),
+      sourceEventSeqs: sourceEventSeqs.map(seqRange)
+    });
+    try {
+      return attempt();
+    } catch (error) {
+      if (!isInvalidReplaceOp(error)) throw error;
+      flipReplaceFields();
+      console.log("[mosaic-memory-compact] replace surfaceOp spelling self-corrected to " + replaceFields + " (host validation won over the probe)");
+      return attempt();
+    }
+  }
   // ───────────────────────────────────────────────────────────────── light
   /**
    * Per-node 1:1 surface replacement over the light zone.
@@ -432,31 +471,27 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
           shadowedTokenCount: meter.estimateMessage(entry.message)
         });
       }
-      const opts = {
-        surfaceOp: replaceOp(entry.seq, entry.seq),
-        sourceEventSeqs: [seqRange(entry.seq)]
-      };
       const data = entry.event.data;
       let replacement;
       if (msg.role === "assistant") {
-        replacement = session.append("assistant/message", {
+        replacement = this.appendReplacement(session, "assistant/message", {
           turn: data.turn,
           step: data.step,
           ...data,
           message: { ...msg, content: blocks }
-        }, opts);
+        }, entry.seq, entry.seq, [entry.seq]);
       } else if (msg.source.kind === "tool") {
-        replacement = session.append("tool/result", {
+        replacement = this.appendReplacement(session, "tool/result", {
           turn: data.turn,
           step: data.step,
           ...data,
           message: { ...msg, content: blocks }
-        }, opts);
+        }, entry.seq, entry.seq, [entry.seq]);
       } else {
-        replacement = session.append("user/message", {
+        replacement = this.appendReplacement(session, "user/message", {
           ...msg,
           content: blocks
-        }, opts);
+        }, entry.seq, entry.seq, [entry.seq]);
       }
       this.distilledSeqs.add(replacement.seq);
     }
@@ -552,6 +587,8 @@ var index_default = MosaicMemoryCompactionEngine;
 0 && (module.exports = {
   MosaicMemoryCompactionEngine,
   apply,
-  detectedReplaceFields
+  detectedReplaceFields,
+  opEndOf,
+  opStartOf
 });
 //# sourceMappingURL=index.cjs.map

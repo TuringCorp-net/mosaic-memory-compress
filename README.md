@@ -197,11 +197,15 @@ The adapter probes the host at runtime and adapts to its session API:
 | 0.1.2 | `snapshotEvents()` | `start` / `end` | supported (production, 2026-09-06) |
 | 0.1.5+ | `snapshotEvents()` | `startSeq` / `endSeq` | supported (probe-verified) |
 
-Detection is behavioural, not version parsing: the module replays a minimal
-append+replace log through the exported pure `foldSurface` and uses whichever
-spelling the host accepts (the two are mutually exclusive — 0.1.5 also
-enforces exactly three keys). If the probe cannot run, the legacy spelling is
-used. Optional diagnostics: set `MOSAIC_DIAG=<path>` to log pre-step and
+Detection is behavioural, not version parsing — and self-correcting: the
+module replays a minimal append+replace log through the exported pure
+`foldSurface` to pick an initial spelling (the two are mutually exclusive:
+0.1.5 also enforces exactly three keys), and if the host still rejects a
+replacement it flips the spelling and retries once. A probe can only be as
+correct as the module resolution it runs under, so the host's own validation
+has the final word. (Mount the package by installing it — `npm pack` +
+unpack into `node_modules` — rather than symlinking a dev checkout that
+carries its own `node_modules`, which would shadow the host's session API.) Optional diagnostics: set `MOSAIC_DIAG=<path>` to log pre-step and
 exception lines to a file (journald buffering can hide stdout).
 
 ### DSH adapter: session allowlist (safety gate)

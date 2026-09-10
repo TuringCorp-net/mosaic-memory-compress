@@ -3,6 +3,31 @@
 All notable changes to MosaicMemoryCompress and its DSH adapter.
 Dates are local (Asia/Shanghai).
 
+## v1.3.1 — 2026-09-10
+
+**Follow-up to v1.3.0: the capability probe alone was not enough.**
+
+- **Fixed (write path)**: when the module's own dev tree shadows the host's
+  `@deepseek-ai/dsh-session`, the probe validated against the wrong
+  implementation and chose the wrong spelling — 0.1.5 hosts still rejected
+  every replacement. `appendReplacement()` now treats the host's
+  `invalid replace surfaceOp` as authoritative, flips the spelling (cached
+  per process) and retries once; a rejected append leaves no event behind.
+- **Fixed (read path)**: range-fold detection used `op.start !== op.end`,
+  which reads `undefined` on 0.1.5 and silently skipped round-counter
+  invalidation after a fold. Now reads either spelling
+  (`opStartOf` / `opEndOf`, exported for tests).
+- **Changed (mounting)**: mount by installing — `npm pack` the repo (no
+  `node_modules` in the tarball) and unpack into
+  `profiles/node_modules/mosaic-memory-compress` — instead of symlinking a
+  dev checkout. The dist then resolves the host's own session API from the
+  profile and the probe is right on the first try. Applied to the production
+  profile and the 0.1.5 test instance.
+- **Tests**: new `crossversion.spec.ts` reproduces the shadowed-deployment
+  path (dev-tree 0.1.0 module + 0.1.5 host session) and asserts the flip,
+  the written op keys `[op,startSeq,endSeq]`, and that 0.1.5 `foldSurface`
+  re-accepts the compressed log.
+
 ## v1.3.0 — 2026-09-10
 
 **DSH 0.1.5 compatibility (breaking host change).**
