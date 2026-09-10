@@ -187,7 +187,24 @@ exists. Its primary integration reference is **DeepSeek Harness (DSH)**
 ([deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
 — everything is a plugin), whose task-level compaction / output retention /
 spill complement this library's message-level compression (roles and order
-preserved). ### DSH adapter: session allowlist (safety gate)
+preserved). ### DSH compatibility
+
+The adapter probes the host at runtime and adapts to its session API:
+
+| DSH | session events | replace surfaceOp fields | status |
+|---|---|---|---|
+| 0.1.0 | `session.events` | `start` / `end` | supported |
+| 0.1.2 | `snapshotEvents()` | `start` / `end` | supported (production, 2026-09-06) |
+| 0.1.5+ | `snapshotEvents()` | `startSeq` / `endSeq` | supported (probe-verified) |
+
+Detection is behavioural, not version parsing: the module replays a minimal
+append+replace log through the exported pure `foldSurface` and uses whichever
+spelling the host accepts (the two are mutually exclusive — 0.1.5 also
+enforces exactly three keys). If the probe cannot run, the legacy spelling is
+used. Optional diagnostics: set `MOSAIC_DIAG=<path>` to log pre-step and
+exception lines to a file (journald buffering can hide stdout).
+
+### DSH adapter: session allowlist (safety gate)
 
 By default the adapter compresses **nothing** until you explicitly list
 session ids — a first-time trial can never touch your other conversations:

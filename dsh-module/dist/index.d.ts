@@ -34,6 +34,26 @@ interface MosaicMemoryConfig {
      */
     sessionDenylist?: string[];
 }
+/**
+ * Replace-op field names across the DSH 0.1.x → 0.1.5 validation change.
+ *
+ * 0.1.0/0.1.2 `isReplaceOp`: exactly { op:'replace', start, end }.
+ * 0.1.5    `isReplaceOp`: exactly { op:'replace', startSeq, endSeq } — and it
+ * enforces `Object.keys(op).length === 3`, so writing both spellings is
+ * rejected too. The two are mutually exclusive at runtime.
+ *
+ * Detection is a CAPABILITY PROBE, not a version read: replay a minimal
+ * two-event log (append + replace-with-new-fields) through the exported pure
+ * `foldSurface`. 0.1.5+ accepts it and returns the folded nodes; 0.1.0/0.1.2
+ * reject it with "carries an invalid replace surfaceOp". Probing behaviour
+ * beats parsing versions: an intermediate rc or a backport cannot fool it.
+ * Result is cached for the process; if the probe cannot run at all (missing
+ * export, unexpected throw) we fall back to the legacy spelling, which is the
+ * conservative choice for the 0.1.x line the module originally targeted.
+ */
+type ReplaceFields = 'seq' | 'legacy';
+/** Test/diagnostic hook: which spelling the probe selected. */
+declare function detectedReplaceFields(): ReplaceFields;
 declare class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     static inject: string[];
     private readonly mosaic;
@@ -154,4 +174,4 @@ declare class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
 /** Cordis plugin entry. */
 declare function apply(ctx: Context, config?: Partial<MosaicMemoryConfig>): void;
 
-export { MosaicMemoryCompactionEngine, type MosaicMemoryConfig, apply, MosaicMemoryCompactionEngine as default };
+export { MosaicMemoryCompactionEngine, type MosaicMemoryConfig, apply, MosaicMemoryCompactionEngine as default, detectedReplaceFields };

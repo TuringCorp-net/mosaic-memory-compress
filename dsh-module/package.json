@@ -1,9 +1,9 @@
 {
   "name": "@turingcorp/dsh-mosaic-memory-compress",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Natural forgetting-curve compaction backend for DeepSeek Harness (prototype)",
+  "description": "Natural forgetting-curve compaction backend for DeepSeek Harness (DSH 0.1.0–0.1.5+ compatible)",
   "main": "src/index.ts",
   "scripts": {
     "typecheck": "./node_modules/.bin/tsc --noEmit",

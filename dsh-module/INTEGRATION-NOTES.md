@@ -264,3 +264,38 @@ cannot keep any prefix (three constraints: time order / oldest-first
 compression / prefix-from-head). Head tax is unavoidable; bounded by keeping
 the fold input pre-dewatered. Newest-first layout would break the prefix on
 every message instead — no free layout exists.
+
+## 18. DSH 0.1.5 compatibility: replace surfaceOp field rename (2026-09-10)
+
+**Symptom** (only once compression actually fires — default thresholds keep
+the engine on the no-op path, so this stays silent until a session reaches
+R≥40): `EXCEPTION: session event "user/message" carries an invalid replace
+surfaceOp`.
+
+**Root cause** (0.1.5 `packages/core/session/src/surface.ts`):
+`isReplaceOp` requires exactly three keys `{op:'replace', startSeq, endSeq}`;
+0.1.0/0.1.2 required `{op:'replace', start, end}`. The key-count check is
+exact, so writing both spellings is rejected too. Our module emitted the old
+names → V3 validation refused every replacement.
+
+**Fix** — behavioural capability probe, not version parsing: replay a minimal
+two-event log (append + replace with the new field names) through the pure
+`foldSurface` export. 0.1.5+ folds it; 0.1.0/0.1.2 throw "invalid replace
+surfaceOp". Result is cached per process; an unrunnable probe falls back to
+the legacy spelling. `replaceOp(start, end)` then emits the spelling the host
+accepts (exactly three keys either way).
+
+**Verified** (2026-09-10): probe selects `legacy` on 0.1.0-rc.6 (dev tree) and
+`seq` on 0.1.5-rc.1 (both the Zero runtime and the profiles runtime); light and
+heavy passes exercised on the 0.1.5 test instance (3099) with aggressive
+thresholds (lightStart=1/W1/heavyStart=2/W1), session still loads cleanly.
+
+**Also in this change**: diagnostics moved behind `MOSAIC_DIAG=<path>` (was an
+unconditional /tmp write, added 2026-09-05 for the journald-buffering hunt);
+dsh-module version → 0.2.0.
+
+**Lesson**: the 0.1.2 event-name change (session.events → snapshotEvents) and
+this 0.1.5 field rename are the same class of breakage — host API drift that
+stays invisible until a compressing path runs. Probe capabilities at runtime
+and keep the legacy path as the fallback; never assume the API you compiled
+against is the API you run on.

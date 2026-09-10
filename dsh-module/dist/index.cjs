@@ -22,7 +22,8 @@ var index_exports = {};
 __export(index_exports, {
   MosaicMemoryCompactionEngine: () => MosaicMemoryCompactionEngine,
   apply: () => apply,
-  default: () => index_default
+  default: () => index_default,
+  detectedReplaceFields: () => detectedReplaceFields
 });
 module.exports = __toCommonJS(index_exports);
 var import_node_fs = require("fs");
@@ -92,6 +93,41 @@ function seqRange(v) {
 function sessionEventList(session) {
   const s = session;
   return s.snapshotEvents !== void 0 ? s.snapshotEvents() : s.events ?? [];
+}
+var replaceFields;
+function probeReplaceFields() {
+  try {
+    if (typeof import_dsh_session.foldSurface !== "function") return "legacy";
+    const seq = (v) => v;
+    const base = { seq: 0, time: 1 };
+    const append = {
+      ...base,
+      seq: seq(0),
+      type: "user/message",
+      data: { role: "user", source: { kind: "user" }, id: "mosaic-probe-0", content: [{ type: "text", text: "probe" }] },
+      surfaceOp: "append"
+    };
+    const replace = {
+      ...base,
+      seq: seq(1),
+      type: "user/message",
+      data: { role: "user", source: { kind: "user" }, id: "mosaic-probe-1", content: [{ type: "text", text: "probe" }] },
+      surfaceOp: { op: "replace", startSeq: seq(0), endSeq: seq(0) },
+      sourceEventSeqs: [seq(0)]
+    };
+    (0, import_dsh_session.foldSurface)([append, replace]);
+    return "seq";
+  } catch {
+    return "legacy";
+  }
+}
+function replaceOp(start, end) {
+  replaceFields ??= probeReplaceFields();
+  return replaceFields === "seq" ? { op: "replace", startSeq: seqRange(start), endSeq: seqRange(end) } : { op: "replace", start: seqRange(start), end: seqRange(end) };
+}
+function detectedReplaceFields() {
+  replaceFields ??= probeReplaceFields();
+  return replaceFields;
 }
 var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.BasicCompactionEngine {
   static inject = ["llm", "tokenMeter", "sessions"];
@@ -165,12 +201,11 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
    * below threshold or off-window. context-overflow forces a run.
    */
   async compactIfNeeded(agent, trigger, signal) {
-    const diag = (msg) => {
+    const diagPath = process.env["MOSAIC_DIAG"];
+    const diag = diagPath === void 0 ? () => {
+    } : (msg) => {
       try {
-        (0, import_node_fs.appendFileSync)(
-          "/tmp/mosaic-diag.log",
-          (/* @__PURE__ */ new Date()).toISOString() + " " + msg + "\n"
-        );
+        (0, import_node_fs.appendFileSync)(diagPath, (/* @__PURE__ */ new Date()).toISOString() + " " + msg + "\n");
       } catch {
       }
     };
@@ -331,7 +366,7 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
       content: [{ type: "text", text: summaryText }],
       source: { kind: "plugin", plugin: "dsh-mosaic-memory-compress" }
     }), {
-      surfaceOp: { op: "replace", start: seqRange(startSeq), end: seqRange(endSeq) },
+      surfaceOp: replaceOp(startSeq, endSeq),
       sourceEventSeqs: shadowedSeqs
     });
     const confirm = session.append("assistant/message", {
@@ -398,7 +433,7 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
         });
       }
       const opts = {
-        surfaceOp: { op: "replace", start: seqRange(entry.seq), end: seqRange(entry.seq) },
+        surfaceOp: replaceOp(entry.seq, entry.seq),
         sourceEventSeqs: [seqRange(entry.seq)]
       };
       const data = entry.event.data;
@@ -516,6 +551,7 @@ var index_default = MosaicMemoryCompactionEngine;
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   MosaicMemoryCompactionEngine,
-  apply
+  apply,
+  detectedReplaceFields
 });
 //# sourceMappingURL=index.cjs.map

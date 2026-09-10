@@ -6,7 +6,7 @@ import {
   createAssistantMessage,
   createUserMessage
 } from "@deepseek-ai/dsh-llm";
-import { deriveEventMessage, isSurfaceEvent } from "@deepseek-ai/dsh-session";
+import { deriveEventMessage, foldSurface, isSurfaceEvent } from "@deepseek-ai/dsh-session";
 
 // src/zones.ts
 function zoneBoundaries(userCount, lightStart, heavyStart) {
@@ -70,6 +70,41 @@ function seqRange(v) {
 function sessionEventList(session) {
   const s = session;
   return s.snapshotEvents !== void 0 ? s.snapshotEvents() : s.events ?? [];
+}
+var replaceFields;
+function probeReplaceFields() {
+  try {
+    if (typeof foldSurface !== "function") return "legacy";
+    const seq = (v) => v;
+    const base = { seq: 0, time: 1 };
+    const append = {
+      ...base,
+      seq: seq(0),
+      type: "user/message",
+      data: { role: "user", source: { kind: "user" }, id: "mosaic-probe-0", content: [{ type: "text", text: "probe" }] },
+      surfaceOp: "append"
+    };
+    const replace = {
+      ...base,
+      seq: seq(1),
+      type: "user/message",
+      data: { role: "user", source: { kind: "user" }, id: "mosaic-probe-1", content: [{ type: "text", text: "probe" }] },
+      surfaceOp: { op: "replace", startSeq: seq(0), endSeq: seq(0) },
+      sourceEventSeqs: [seq(0)]
+    };
+    foldSurface([append, replace]);
+    return "seq";
+  } catch {
+    return "legacy";
+  }
+}
+function replaceOp(start, end) {
+  replaceFields ??= probeReplaceFields();
+  return replaceFields === "seq" ? { op: "replace", startSeq: seqRange(start), endSeq: seqRange(end) } : { op: "replace", start: seqRange(start), end: seqRange(end) };
+}
+function detectedReplaceFields() {
+  replaceFields ??= probeReplaceFields();
+  return replaceFields;
 }
 var MosaicMemoryCompactionEngine = class extends BasicCompactionEngine {
   static inject = ["llm", "tokenMeter", "sessions"];
@@ -143,12 +178,11 @@ var MosaicMemoryCompactionEngine = class extends BasicCompactionEngine {
    * below threshold or off-window. context-overflow forces a run.
    */
   async compactIfNeeded(agent, trigger, signal) {
-    const diag = (msg) => {
+    const diagPath = process.env["MOSAIC_DIAG"];
+    const diag = diagPath === void 0 ? () => {
+    } : (msg) => {
       try {
-        appendFileSync(
-          "/tmp/mosaic-diag.log",
-          (/* @__PURE__ */ new Date()).toISOString() + " " + msg + "\n"
-        );
+        appendFileSync(diagPath, (/* @__PURE__ */ new Date()).toISOString() + " " + msg + "\n");
       } catch {
       }
     };
@@ -309,7 +343,7 @@ var MosaicMemoryCompactionEngine = class extends BasicCompactionEngine {
       content: [{ type: "text", text: summaryText }],
       source: { kind: "plugin", plugin: "dsh-mosaic-memory-compress" }
     }), {
-      surfaceOp: { op: "replace", start: seqRange(startSeq), end: seqRange(endSeq) },
+      surfaceOp: replaceOp(startSeq, endSeq),
       sourceEventSeqs: shadowedSeqs
     });
     const confirm = session.append("assistant/message", {
@@ -376,7 +410,7 @@ var MosaicMemoryCompactionEngine = class extends BasicCompactionEngine {
         });
       }
       const opts = {
-        surfaceOp: { op: "replace", start: seqRange(entry.seq), end: seqRange(entry.seq) },
+        surfaceOp: replaceOp(entry.seq, entry.seq),
         sourceEventSeqs: [seqRange(entry.seq)]
       };
       const data = entry.event.data;
@@ -494,6 +528,7 @@ var index_default = MosaicMemoryCompactionEngine;
 export {
   MosaicMemoryCompactionEngine,
   apply,
-  index_default as default
+  index_default as default,
+  detectedReplaceFields
 };
 //# sourceMappingURL=index.js.map

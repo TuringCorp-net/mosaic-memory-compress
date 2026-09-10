@@ -43,7 +43,7 @@ import type {
   Message,
   TextBlock,
 } from '@deepseek-ai/dsh-llm'
-import { deriveEventMessage, isSurfaceEvent } from '@deepseek-ai/dsh-session'
+import { deriveEventMessage, foldSurface, isSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { zoneBoundaries } from './zones.ts'
 import { randomUUID } from 'node:crypto'
@@ -185,6 +185,69 @@ function sessionEventList(session: import('@deepseek-ai/dsh-session').Session): 
   return s.snapshotEvents !== undefined ? s.snapshotEvents() : (s.events ?? [])
 }
 
+/**
+ * Replace-op field names across the DSH 0.1.x → 0.1.5 validation change.
+ *
+ * 0.1.0/0.1.2 `isReplaceOp`: exactly { op:'replace', start, end }.
+ * 0.1.5    `isReplaceOp`: exactly { op:'replace', startSeq, endSeq } — and it
+ * enforces `Object.keys(op).length === 3`, so writing both spellings is
+ * rejected too. The two are mutually exclusive at runtime.
+ *
+ * Detection is a CAPABILITY PROBE, not a version read: replay a minimal
+ * two-event log (append + replace-with-new-fields) through the exported pure
+ * `foldSurface`. 0.1.5+ accepts it and returns the folded nodes; 0.1.0/0.1.2
+ * reject it with "carries an invalid replace surfaceOp". Probing behaviour
+ * beats parsing versions: an intermediate rc or a backport cannot fool it.
+ * Result is cached for the process; if the probe cannot run at all (missing
+ * export, unexpected throw) we fall back to the legacy spelling, which is the
+ * conservative choice for the 0.1.x line the module originally targeted.
+ */
+type ReplaceFields = 'seq' | 'legacy'
+let replaceFields: ReplaceFields | undefined
+
+function probeReplaceFields(): ReplaceFields {
+  try {
+    if (typeof foldSurface !== 'function') return 'legacy'
+    const seq = (v: number) => v as unknown as number & { readonly [k: string]: unknown }
+    const base = { seq: 0, time: 1 }
+    const append = {
+      ...base,
+      seq: seq(0),
+      type: 'user/message',
+      data: { role: 'user', source: { kind: 'user' }, id: 'mosaic-probe-0', content: [{ type: 'text', text: 'probe' }] },
+      surfaceOp: 'append',
+    }
+    const replace = {
+      ...base,
+      seq: seq(1),
+      type: 'user/message',
+      data: { role: 'user', source: { kind: 'user' }, id: 'mosaic-probe-1', content: [{ type: 'text', text: 'probe' }] },
+      surfaceOp: { op: 'replace', startSeq: seq(0), endSeq: seq(0) },
+      sourceEventSeqs: [seq(0)],
+    }
+    foldSurface([append, replace] as never)
+    return 'seq'
+  } catch {
+    return 'legacy'
+  }
+}
+
+/** The replace surfaceOp for the running DSH, with exactly three keys.
+ * Typed `never` so it satisfies either version's SurfaceOp shape (the runtime
+ * spelling is what each version validates). */
+function replaceOp(start: number, end: number): never {
+  replaceFields ??= probeReplaceFields()
+  return (replaceFields === 'seq'
+    ? { op: 'replace', startSeq: seqRange(start), endSeq: seqRange(end) }
+    : { op: 'replace', start: seqRange(start), end: seqRange(end) }) as never
+}
+
+/** Test/diagnostic hook: which spelling the probe selected. */
+export function detectedReplaceFields(): ReplaceFields {
+  replaceFields ??= probeReplaceFields()
+  return replaceFields
+}
+
 export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
   static inject = ['llm', 'tokenMeter', 'sessions']
 
@@ -277,11 +340,12 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     trigger: CompactionTrigger,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
-    // TEMP DIAGNOSTICS (2026-09-05): file-based, bypasses journal buffering.
-    const diag = (msg: string) => {
+    // Opt-in diagnostics (MOSAIC_DIAG=<path>): file-based, bypasses journal
+    // buffering. Off by default — production hosts leave it unset.
+    const diagPath = process.env['MOSAIC_DIAG']
+    const diag = diagPath === undefined ? () => {} : (msg: string) => {
       try {
-        appendFileSync('/tmp/mosaic-diag.log',
-          new Date().toISOString() + ' ' + msg + '\n')
+        appendFileSync(diagPath, new Date().toISOString() + ' ' + msg + '\n')
       } catch { /* never fail the compaction path */ }
     }
     diag('compactIfNeeded sid=' + agent.session.id + ' trigger=' + trigger)
@@ -504,7 +568,7 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
       content: [{ type: 'text', text: summaryText }],
       source: { kind: 'plugin', plugin: 'dsh-mosaic-memory-compress' },
     }), {
-      surfaceOp: { op: 'replace', start: seqRange(startSeq), end: seqRange(endSeq) },
+      surfaceOp: replaceOp(startSeq, endSeq),
       sourceEventSeqs: shadowedSeqs,
     })
     const confirm = session.append('assistant/message', {
@@ -586,7 +650,7 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
         })
       }
       const opts = {
-        surfaceOp: { op: 'replace' as const, start: seqRange(entry.seq), end: seqRange(entry.seq) },
+        surfaceOp: replaceOp(entry.seq, entry.seq),
         sourceEventSeqs: [seqRange(entry.seq)],
       }
       const data = entry.event.data as Record<string, unknown>
