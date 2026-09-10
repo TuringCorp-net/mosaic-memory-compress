@@ -3,6 +3,25 @@
 All notable changes to MosaicMemoryCompress and its DSH adapter.
 Dates are local (Asia/Shanghai).
 
+## v1.3.3 — 2026-09-10
+
+**Single-checkpoint fold — fixes stored-session corruption on 0.1.5.**
+
+- **Fixed**: the fold appended a second `assistant/message` ("ancient rounds
+  folded …"). 0.1.5 requires every assistant event to carry settlement fields
+  (`turn`, `step`, **`stream`** — the reason assistant events "embed their
+  source stream"); without `stream` the session loader reports the stored
+  session as **corrupt** and it stops loading. The fold now writes exactly ONE
+  `user/message` checkpoint (matching the official backend) with the fold
+  notice in its text; no assistant companion is appended. Steady state is
+  therefore 41 messages (40 user rounds + 1 checkpoint), not 42.
+- **Tests**: `crossversion.spec.ts` now reloads the folded log through
+  `Session.create` — the loader-level seed validation that `foldSurface`
+  replay does not cover — and asserts the surface round-trips and that no
+  assistant/message is appended without settlement fields.
+- **Docs**: "summary pair" wording replaced by "checkpoint" across README
+  (EN/zh), design (EN/zh) and integration notes.
+
 ## v1.3.2 — 2026-09-10
 
 **0.1.5 assistant/message nodes are immutable; install-based mounting

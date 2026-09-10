@@ -90,6 +90,22 @@ assert.equal(opStartOf({ op: 'replace', start: 2, end: 2 }),
 const assistantNodes = session.surface.nodes.filter((n: number) => session.eventAt(n)?.type === 'assistant/message')
 assert.ok(assistantNodes.length > 0, 'session still holds assistant nodes (skipped, not removed)')
 assert.equal(engine['assistantImmutable'], true, 'engine learned the host invariant')
+// Loader-level reload check (Baseline's methodology note): foldSurface replay
+// does NOT exercise the seed envelope validation that a real session load
+// does — a missing assistant settlement field (0.1.5 requires turn/step/
+// stream) only shows up here.
+try {
+  const reloaded = ds015.Session.create('cross-version-reload', events.map((e: any) => ({ ...e })))
+  assert.equal(reloaded.surface.nodes.length, session.surface.nodes.length,
+    'reloaded session must reproduce the same surface')
+  console.log('RELOAD OK: 0.1.5 Session.create accepts the folded log (loader-level seed validation)')
+} catch (err) {
+  assert.fail('session reload rejected the folded log: ' + (err as Error).message)
+}
+// No assistant/message may be appended by the fold in the first place.
+const strayAssistant = events.filter((e: any) => e.type === 'assistant/message' && e.surfaceOp === 'append' && e.data && e.data.stream === undefined)
+assert.equal(strayAssistant.length, 0,
+  'fold appends no assistant/message without settlement fields (got ' + strayAssistant.length + ')')
 console.log('assistant-skip PASS: ' + assistantNodes.length + ' assistant nodes kept intact on 0.1.5, user/tool nodes still dehydrated')
 console.log('read-side fix PASS: both spellings recognised (range fold vs 1:1)')
 console.log('cross-version self-correction PASS')

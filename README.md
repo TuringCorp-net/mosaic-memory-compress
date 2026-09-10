@@ -50,7 +50,7 @@ message array:
 ```
 recent 10 rounds   → verbatim (vivid — what you are actually working on)
 rounds 10–40       → structural truncation (reasoning/args/results trimmed, text kept)
-rounds 40+         → one heavy pair: identity, environment, permissions, rules
+rounds 40+         → one heavy checkpoint: identity, environment, permissions, rules
 ```
 
 No switch moment, no reset, no length limit. The heavy zone is *semantic

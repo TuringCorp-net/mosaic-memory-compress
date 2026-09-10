@@ -85,7 +85,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
   const result = await engine.compactIfNeeded(agent as never, 'pressure', new AbortController().signal)
   assert.notEqual(result, null)
   const nodes = session.surface.nodes
-  assert.equal(nodes.length, 42) // 70 - 30 folded + summary pair; steady 40 user rounds
+  assert.equal(nodes.length, 41) // 70 - 30 folded + ONE checkpoint message; steady 40 user rounds
 
   const texts = nodes.map(seq => messageOf(session, seq))
   // light zone = rounds 30..59 (30 user msgs): user TEXT stays verbatim
@@ -100,7 +100,7 @@ function mockCtx(opts?: { failLight?: boolean }) {
   // markers present
   const types = evts(session).map((e: any) => e.type)
   assert.ok(types.includes('compaction/start') && types.includes('compaction/summary') && types.includes('compaction/end'))
-  console.log('3) 70 rounds: light verbatim (30), raw (10), heavy fold 70→42 PASS')
+  console.log('3) 70 rounds: light verbatim (30), raw (10), heavy fold 70→41 PASS')
 }
 
 // 4) structural light is pure (no LLM involvement): heavy LLM failure still completes
@@ -152,11 +152,13 @@ function mockCtx(opts?: { failLight?: boolean }) {
     }
   }
   assert.equal(bad.length, 0, 'messages missing id: ' + bad.join(','))
-  // specifically the checkpoint + confirm we append
+  // specifically the checkpoint we append — exactly one, no assistant companion
   const checkpoint = evts(session).find((e: any) => e.type === 'user/message' && (e.data as any)?.source?.plugin === 'dsh-mosaic-memory-compress')
   assert.ok(checkpoint && (checkpoint.data as any).id, 'checkpoint user message missing id')
-  const confirm = evts(session).find((e: any) => e.type === 'assistant/message' && JSON.stringify(e.data?.message?.content).includes('MosaicMemory'))
-  assert.ok(confirm && (confirm.data as any)?.message?.id, 'confirm message missing id')
+  assert.ok(JSON.stringify((checkpoint.data as any)?.content).includes('MosaicMemory'),
+    'fold notice rides in the checkpoint text')
+  const assistantAppends = evts(session).filter((e: any) => e.type === 'assistant/message' && e.surfaceOp === 'append' && e.seq > 150)
+  assert.equal(assistantAppends.length, 0, 'no assistant/message is appended by the fold (0.1.5 settlement rules)')
   console.log('6) identified-message constraint: all appended messages carry id PASS')
 }
 

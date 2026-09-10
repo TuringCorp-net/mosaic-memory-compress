@@ -197,7 +197,7 @@ heavyWindow=30 — light and heavy cadences DECOUPLED per-session, light zone
 exactly one window wide (30 rounds: [R-40, R-10)) so every batch entering the
 heavy zone arrives already dewatered; light first runs at R=40, heavy first
 at R=70, both aligned at 70/100/130 (same pre-step, same cache miss).
-Steady state: summary pair + 40 user rounds (≤41 messages per round).
+Steady state: one checkpoint message + 40 user rounds (≤41 messages per round).
 (The 2026-08-26 finalization of 10/30/30/30 was superseded on 2026-09-05 by
 the decoupled-cadence design above; scenario tests re-seeded 60→70.)
 
@@ -330,6 +330,23 @@ fold is unaffected (it replaces a user/message with the full citation list).
 Consequence documented: on 0.1.5 the light pass no longer trims reasoning /
 tool-call arguments (they live on assistant nodes), so per-window surface
 savings there come from tool results, injections and the heavy fold.
+
+**0.1.5 follow-up 3 — assistant settlement fields vs the session loader.**
+The fold used to append a second `assistant/message` ("ancient rounds folded
+…"). 0.1.5 requires every assistant event to carry settlement fields
+(`turn`, `step`, and an embedded `stream` array — the same fact behind "embeds
+its source stream"); without `stream` the *loader* reports the stored session
+as corrupt (`SessionQueryError: … seed assistant/message … has invalid
+settlement fields`) — the session stops loading. The fold now writes exactly
+ONE `user/message` checkpoint, matching the official backend, and the notice
+rides in that message's text.
+
+**Methodology lesson (from the same report)**: `foldSurface` replay does NOT
+exercise the loader's seed-envelope validation, so that class of defect slips
+through a replay-only test. `crossversion.spec.ts` now also reloads the folded
+log with `Session.create` (the loader-level validation path) and asserts the
+same surface comes back, plus that no assistant/message is appended without
+settlement fields.
 
 **Read-side companion fix**: the `session/event` listener detected range folds
 via `op.start !== op.end`; on 0.1.5 those keys are `undefined`, so a fold

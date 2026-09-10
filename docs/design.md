@@ -70,7 +70,10 @@ skip them.
 
 ### Heavy Compress
 
-Compress the entire Heavy zone into exactly 2 messages — a summary pair.
+Compress the entire Heavy zone into exactly 1 message — a checkpoint
+(matching the official backend, which writes a single user checkpoint; no
+assistant companion, since 0.1.5 requires assistant events to carry
+settlement fields).
 
 ```
 Before (default config, e.g. 70 rounds, the oldest 30 already dewatered):
@@ -291,7 +294,7 @@ already-dewatered input.
 
 **Heavy fold field measurement (2026-09-06, same live session, R reached the
 70-round fold).** The heavy fold replaces the oldest 30 rounds with one
-summary pair at the surface head — the next request shows a FULL cache break
+checkpoint message at the surface head — the next request shows a FULL cache break
 (cacheRead 490,752 → 2,688; miss 193 → 165,287 tokens ≈ $0.046 at
 $0.28/M), plus the fold's own LLM call (~10s stall; cost not metered in the
 event stream, estimated ≈ $0.05 for ~100-250K input tokens). Surface dropped

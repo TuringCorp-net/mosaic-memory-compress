@@ -65,6 +65,7 @@ function truncateArguments(raw) {
     return raw.length > LIGHT_ARG_FIELD_MAX ? raw.slice(0, LIGHT_ARG_FIELD_MAX) + "\u2026[truncated]" : raw;
   }
 }
+var FOLD_NOTICE = "\n\n[MosaicMemory] The rounds above this message were folded into this checkpoint; it is now the oldest memory layer. Treat it as established background and continue from the messages that follow.";
 var HEAVY_INSTRUCTION = `You are a dialogue memory compressor. The recent
 rounds of this conversation stay verbatim; your job is to condense only the
 ANCIENT part below into one compact memory node that preserves what must
@@ -390,20 +391,9 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
       model: summaryMessage.model
     });
     const checkpointUser = this.appendReplacement(session, "user/message", (0, import_dsh_llm.createUserMessage)({
-      content: [{ type: "text", text: summaryText }],
+      content: [{ type: "text", text: summaryText + FOLD_NOTICE }],
       source: { kind: "plugin", plugin: "dsh-mosaic-memory-compress" }
     }), startSeq, endSeq, shadowedSeqs);
-    const confirm = session.append("assistant/message", {
-      turn,
-      step: 0,
-      message: (0, import_dsh_llm.createAssistantMessage)({
-        content: [{ type: "text", text: "[MosaicMemory] ancient rounds folded into the checkpoint above; the summary pair is now the oldest memory layer." }],
-        source: {
-          provider: summaryMessage.provider ?? "unknown",
-          model: summaryMessage.model ?? "unknown"
-        }
-      })
-    }, { surfaceOp: "append" });
     const endEv = session.append("compaction/end", { compactionId, turn });
     return {
       compactionId,

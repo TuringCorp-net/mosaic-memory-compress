@@ -35,7 +35,6 @@ import type {
 } from '@deepseek-ai/dsh-compaction'
 import {
   BlockAssembler,
-  createAssistantMessage,
   createUserMessage,
 } from '@deepseek-ai/dsh-llm'
 import type {
@@ -106,6 +105,10 @@ function truncateArguments(raw: string): string {
     return raw.length > LIGHT_ARG_FIELD_MAX ? raw.slice(0, LIGHT_ARG_FIELD_MAX) + '…[truncated]' : raw
   }
 }
+
+/** Appended to every folded checkpoint so the model knows the fold happened. */
+const FOLD_NOTICE = '\n\n[MosaicMemory] The rounds above this message were folded into this checkpoint; '
+  + 'it is now the oldest memory layer. Treat it as established background and continue from the messages that follow.'
 
 /** Heavy-zone checkpoint instruction — mirrors the library's Heavy prompt:
  * role + structure, content selection left to the model. */
@@ -606,21 +609,17 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     // DSH requires every user/assistant message to carry a non-empty
     // message.id ("identified message", enforced at session load). Factory
     // constructors assign the stable id — never hand-build message objects.
+    // Single checkpoint message, matching the official backend's shape.
+    // Deliberately NO assistant/message companion: 0.1.5 requires every
+    // assistant event to carry settlement fields (turn/step/stream — it
+    // "embeds its source stream") and a missing `stream` makes the session
+    // loader report the stored session as corrupt. The official compaction
+    // writes exactly one user checkpoint, so the fold notice rides along in
+    // that message instead of a second event.
     const checkpointUser = this.appendReplacement(session, 'user/message', createUserMessage({
-      content: [{ type: 'text', text: summaryText }],
+      content: [{ type: 'text', text: summaryText + FOLD_NOTICE }],
       source: { kind: 'plugin', plugin: 'dsh-mosaic-memory-compress' },
     }), startSeq, endSeq, shadowedSeqs)
-    const confirm = session.append('assistant/message', {
-      turn,
-      step: 0,
-      message: createAssistantMessage({
-        content: [{ type: 'text', text: '[MosaicMemory] ancient rounds folded into the checkpoint above; the summary pair is now the oldest memory layer.' }],
-        source: {
-          provider: summaryMessage.provider ?? 'unknown',
-          model: summaryMessage.model ?? 'unknown',
-        },
-      }),
-    } as never, { surfaceOp: 'append' })
     const endEv = session.append('compaction/end', { compactionId, turn })
 
     return {
