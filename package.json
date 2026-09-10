@@ -1,14 +1,15 @@
 {
   "name": "mosaic-memory-compress",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "Generic stateless dialogue compression that mimics human memory — forgetting-curve bounded context for LLM conversations, with a ready-to-use adapter module for DeepSeek Harness (DSH).",
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./dsh-module/dist/index.cjs": {
       "types": "./dsh-module/dist/index.d.cts",
@@ -17,12 +18,16 @@
   },
   "files": [
     "src/",
+    "dist/",
     "docs/",
+    "scripts/",
     "dsh-module/dist/",
     "dsh-module/src/",
     "cordis.patch.yml"
   ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build && npm test",
     "test": "npx tsx tests/index.test.ts",
     "bench": "tsx benchmark/simulate.ts",
     "bench:real": "tsx benchmark/real-llm-check.ts",

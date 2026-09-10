@@ -3,11 +3,16 @@
 All notable changes to MosaicMemoryCompress and its DSH adapter.
 Dates are local (Asia/Shanghai).
 
-## Unreleased — 2026-09-10 (docs)
+## v1.3.4 — 2026-09-10
 
-**Upgrade hazard: sessions compressed before v1.3.2 on DSH ≤ 0.1.2 cannot be
-loaded after a 0.1.5 upgrade.**
+**First npm-publishable release + the 0.1.5 upgrade hazard documented.**
 
+- **Fixed (packaging)**: the library entry pointed at TypeScript source
+  (`main`/`types`/`exports` → `src/index.ts`), which plain Node cannot import.
+  `npm run build` now emits `dist/index.js` + `dist/index.d.ts` (tsc,
+  `tsconfig.build.json`) and the entry points at it; `prepublishOnly` builds and
+  tests before any publish. The DSH adapter subpath
+  (`mosaic-memory-compress/dsh-module/dist/index.cjs`) is unchanged.
 - **Documented**: DSH 0.1.5's `v0→v1→v2→v3` session migration refuses a stored
   log that contains mosaic's pre-v1.3.2 *assistant* 1:1 replacements
   (`assistant/message … chunk provenance is not one complete ordered attempt`).
@@ -15,13 +20,13 @@ loaded after a 0.1.5 upgrade.**
   no longer opens, and no plugin-side repair exists (10+ in-place rewrites each
   failed on a different log invariant; `seq` in v0/v1 is a logical chunk-space
   counter, so rows cannot simply be renumbered). README (EN / zh-CN) now warns
-  *before* the host upgrade and points at the new salvage script; the root
-  cause, the measured invariants, the migration source coordinates and the
-  measured blast radius are in `dsh-module/INTEGRATION-NOTES.md` §19.
+  *before* the host upgrade and points at the salvage script; the root cause,
+  the measured invariants, the migration source coordinates and the measured
+  blast radius are in `dsh-module/INTEGRATION-NOTES.md` §19.
 - **Added**: `scripts/salvage-session.py` — read-only transcript salvage for an
   unloadable session log, v0/v1 `session.jsonl.zstd` or 0.1.5's
   `session.v3.jsonl.zstd` (deduplicates surface copies, drops mosaic fold
-  notices, never writes to the source).
+  notices, never writes to the source). Shipped in the npm tarball.
 - **Guidance**: mount mosaic v1.3.2+ *before* upgrading DSH to 0.1.5; treat any
   conversation compressed on ≤ 0.1.2 as salvage-only across that boundary.
 
