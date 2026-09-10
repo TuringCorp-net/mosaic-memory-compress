@@ -135,6 +135,10 @@ function isInvalidReplaceOp(error) {
   const msg = error instanceof Error ? error.message : String(error);
   return msg.includes("invalid replace surfaceOp");
 }
+function isAssistantImmutable(error) {
+  const msg = error instanceof Error ? error.message : String(error);
+  return msg.includes("assistant/message embeds its source stream");
+}
 function flipReplaceFields() {
   replaceFields = replaceFields === "seq" ? "legacy" : "seq";
 }
@@ -158,6 +162,12 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
   distilledSeqs = /* @__PURE__ */ new Set();
   /** Per-pre-step light statistics for the journal diagnostics. */
   lightStats = { calls: 0, tokens: 0 };
+  /**
+   * Set once the host rejects an assistant/message replacement (0.1.5+).
+   * Learned from the host's own error — no probe can know it, because the
+   * guard only fires together with the sourceEventSeqs requirement.
+   */
+  assistantImmutable = false;
   /**
    * Per-session trigger state (lazily initialized): { light, heavy } = the
    * round that pass last ran at, seeded with the zone starts so a fresh mount
@@ -474,12 +484,20 @@ var MosaicMemoryCompactionEngine = class extends import_dsh_compaction_basic.Bas
       const data = entry.event.data;
       let replacement;
       if (msg.role === "assistant") {
-        replacement = this.appendReplacement(session, "assistant/message", {
-          turn: data.turn,
-          step: data.step,
-          ...data,
-          message: { ...msg, content: blocks }
-        }, entry.seq, entry.seq, [entry.seq]);
+        if (this.assistantImmutable) continue;
+        try {
+          replacement = this.appendReplacement(session, "assistant/message", {
+            turn: data.turn,
+            step: data.step,
+            ...data,
+            message: { ...msg, content: blocks }
+          }, entry.seq, entry.seq, [entry.seq]);
+        } catch (error) {
+          if (!isAssistantImmutable(error)) throw error;
+          this.assistantImmutable = true;
+          console.log("[mosaic-memory-compact] host forbids assistant/message replacement (0.1.5+): skipping assistant nodes in the light pass");
+          continue;
+        }
       } else if (msg.source.kind === "tool") {
         replacement = this.appendReplacement(session, "tool/result", {
           turn: data.turn,

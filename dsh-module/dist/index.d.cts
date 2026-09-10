@@ -71,6 +71,12 @@ declare class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     /** Per-pre-step light statistics for the journal diagnostics. */
     private lightStats;
     /**
+     * Set once the host rejects an assistant/message replacement (0.1.5+).
+     * Learned from the host's own error — no probe can know it, because the
+     * guard only fires together with the sourceEventSeqs requirement.
+     */
+    private assistantImmutable;
+    /**
      * Per-session trigger state (lazily initialized): { light, heavy } = the
      * round that pass last ran at, seeded with the zone starts so a fresh mount
      * fires once R is a full window past them. Light and heavy are fully

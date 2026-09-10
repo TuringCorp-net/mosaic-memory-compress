@@ -3,6 +3,32 @@
 All notable changes to MosaicMemoryCompress and its DSH adapter.
 Dates are local (Asia/Shanghai).
 
+## v1.3.2 — 2026-09-10
+
+**0.1.5 assistant/message nodes are immutable; install-based mounting
+reverted.**
+
+- **Fixed**: on 0.1.5 `assertProvenance` rejects `sourceEventSeqs` on
+  `assistant/message` ("embeds its source stream") while the same validator
+  requires every shadowed node to be cited — so assistant nodes can never be
+  replaced there. The light pass now learns this from the host's first
+  rejection and skips assistant nodes, continuing to dehydrate user/tool
+  nodes; the heavy fold is unaffected (it replaces a `user/message` with the
+  full citation list).
+  Documented consequence: on 0.1.5 the light pass no longer trims reasoning /
+  tool-call arguments (they live on assistant nodes); per-window savings
+  there come from tool results, injections and the heavy fold.
+- **Reverted**: install-based mounting (`npm pack` + unpack) — it broke
+  instance startup (`request for '@deepseek-ai/cosmokit' is from a module not
+  been linked`: the cordis loader refuses modules it has not linked, and a
+  bare unpack is not a registered profile dependency tree). The symlink mount
+  stays; v1.3.1's write-path self-correction is what makes the resulting
+  module shadowing harmless. `scripts/install-local.sh` now warns about this.
+- **Tests**: `crossversion.spec.ts` now seeds assistant nodes with 0.1.5's
+  embedded `stream` and `model` source, asserting that the host rejection is
+  learned, assistant nodes stay intact, user/tool nodes are still dehydrated,
+  and 0.1.5 `foldSurface` re-accepts the log.
+
 ## v1.3.1 — 2026-09-10
 
 **Follow-up to v1.3.0: the capability probe alone was not enough.**

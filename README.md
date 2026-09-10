@@ -202,10 +202,15 @@ module replays a minimal append+replace log through the exported pure
 `foldSurface` to pick an initial spelling (the two are mutually exclusive:
 0.1.5 also enforces exactly three keys), and if the host still rejects a
 replacement it flips the spelling and retries once. A probe can only be as
-correct as the module resolution it runs under, so the host's own validation
-has the final word. (Mount the package by installing it — `npm pack` +
-unpack into `node_modules` — rather than symlinking a dev checkout that
-carries its own `node_modules`, which would shadow the host's session API.) Optional diagnostics: set `MOSAIC_DIAG=<path>` to log pre-step and
+correct as the module resolution it runs under (a symlinked dev checkout
+carries its own `node_modules/@deepseek-ai`, which shadows the host's), so
+the host's own validation has the final word.
+
+**0.1.5 note**: that host forbids `sourceEventSeqs` on `assistant/message`
+("embeds its source stream") while requiring every shadowed node to be cited
+— so assistant nodes cannot be replaced there. The light pass skips them
+(user and tool nodes are still dehydrated); the heavy fold is unaffected
+because it replaces a `user/message` with the full citation list. Optional diagnostics: set `MOSAIC_DIAG=<path>` to log pre-step and
 exception lines to a file (journald buffering can hide stdout).
 
 ### DSH adapter: session allowlist (safety gate)

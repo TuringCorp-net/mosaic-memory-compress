@@ -28,6 +28,21 @@ for (let i = 0; i < 6; i++) {
     }),
     surfaceOp: 'append',
   })
+  // assistant node with reasoning — the host makes these immutable on 0.1.5
+  seed.push({
+    type: 'assistant/message', seq: s++, time: t0 + i,
+    data: {
+      turn: i + 1, step: 1,
+      // 0.1.5 assistant/message events embed their source stream — this is
+      // exactly why the host forbids sourceEventSeqs on them.
+      stream: [],
+      message: llm015.createAssistantMessage({
+        content: [{ type: 'reasoning', text: 'thinking about round ' + i + ' '.repeat(30) }, { type: 'text', text: 'ok ' + i }],
+        source: { kind: 'model', provider: 'mock', model: 'mock' },
+      }),
+    },
+    surfaceOp: 'append',
+  })
 }
 const session = ds015.Session.create('cross-version-015', seed)
 console.log('host session (0.1.5) created, nodes =', session.surface.nodes.length)
@@ -71,5 +86,10 @@ assert.notEqual(opStartOf({ op: 'replace', start: 1, end: 5 }),
   opEndOf({ op: 'replace', start: 1, end: 5 }), 'legacy range fold is detected')
 assert.equal(opStartOf({ op: 'replace', start: 2, end: 2 }),
   opEndOf({ op: 'replace', start: 2, end: 2 }), 'legacy 1:1 replace is not a fold')
+// 0.1.5: assistant nodes must be skipped, not replaced
+const assistantNodes = session.surface.nodes.filter((n: number) => session.eventAt(n)?.type === 'assistant/message')
+assert.ok(assistantNodes.length > 0, 'session still holds assistant nodes (skipped, not removed)')
+assert.equal(engine['assistantImmutable'], true, 'engine learned the host invariant')
+console.log('assistant-skip PASS: ' + assistantNodes.length + ' assistant nodes kept intact on 0.1.5, user/tool nodes still dehydrated')
 console.log('read-side fix PASS: both spellings recognised (range fold vs 1:1)')
 console.log('cross-version self-correction PASS')

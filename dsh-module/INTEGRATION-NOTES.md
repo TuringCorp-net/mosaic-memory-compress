@@ -309,13 +309,27 @@ rejected it. Two fixes, both applied:
    (shadowed) against a 0.1.5 session: probe logs `legacy`, first append is
    rejected, correction flips to `seq`, light + heavy both land, and 0.1.5's
    `foldSurface` re-accepts the compressed log.
-2. **Install instead of symlink the checkout**: `npm pack` the repo (the
-   tarball carries no `node_modules`) and unpack it into
-   `profiles/node_modules/mosaic-memory-compress`. The dist then resolves
-   `@deepseek-ai/*` from the profile (the host's own runtime) and the probe
-   selects `seq` on the first try. Applied to both the production profile and
-   the 0.1.5 test instance; verify with
-   `node -e "console.log(require('<profile>/node_modules/mosaic-memory-compress/dsh-module/dist/index.cjs').detectedReplaceFields())"`.
+2. **Mounting: keep the symlink.** Installing (`npm pack` + unpack into
+   `profiles/node_modules/mosaic-memory-compress`) does make the probe
+   resolve the host's own session API and select `seq` on the first try —
+   but it breaks instance startup: the cordis loader refuses modules it has
+   not linked (`request for '@deepseek-ai/cosmokit' is from a module not been
+   linked`), because a bare unpack is not registered as a profile dependency
+   tree (profiles/ has no package.json). Reverted in production; the symlink
+   stays, and fix (1) — host validation as the authority — is what makes the
+   shadowing harmless. If an install-based mount is ever wanted, register the
+   package as a real profile dependency first.
+
+**0.1.5 follow-up 2 — assistant/message nodes are immutable on 0.1.5.**
+`assertProvenance` throws `assistant/message embeds its source stream and
+cannot carry sourceEventSeqs` while the same function requires every shadowed
+node to be cited — so on 0.1.5 an assistant node can never be replaced. The
+light pass now learns this from the host's first rejection (`assistantImmutable`)
+and skips assistant nodes, continuing to dehydrate user/tool nodes; the heavy
+fold is unaffected (it replaces a user/message with the full citation list).
+Consequence documented: on 0.1.5 the light pass no longer trims reasoning /
+tool-call arguments (they live on assistant nodes), so per-window surface
+savings there come from tool results, injections and the heavy fold.
 
 **Read-side companion fix**: the `session/event` listener detected range folds
 via `op.start !== op.end`; on 0.1.5 those keys are `undefined`, so a fold

@@ -249,6 +249,20 @@ function isInvalidReplaceOp(error: unknown): boolean {
   return msg.includes('invalid replace surfaceOp')
 }
 
+/**
+ * 0.1.5 forbids sourceEventSeqs on assistant/message ("embeds its source
+ * stream") while the same validator requires every shadowed node to be cited
+ * by sourceEventSeqs — so on 0.1.5 an assistant/message node can never be
+ * replaced. That is a host invariant, not a spelling problem: the light pass
+ * must skip assistant nodes there (user/tool nodes are unaffected, and the
+ * heavy fold replaces a user/message with the full citation list, which is
+ * within the rules).
+ */
+function isAssistantImmutable(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error)
+  return msg.includes('assistant/message embeds its source stream')
+}
+
 function flipReplaceFields(): void {
   replaceFields = replaceFields === 'seq' ? 'legacy' : 'seq'
 }
@@ -284,6 +298,13 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
 
   /** Per-pre-step light statistics for the journal diagnostics. */
   private lightStats = { calls: 0, tokens: 0 }
+
+  /**
+   * Set once the host rejects an assistant/message replacement (0.1.5+).
+   * Learned from the host's own error — no probe can know it, because the
+   * guard only fires together with the sourceEventSeqs requirement.
+   */
+  private assistantImmutable = false
 
   /**
    * Per-session trigger state (lazily initialized): { light, heavy } = the
@@ -709,13 +730,24 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
       const data = entry.event.data as Record<string, unknown>
       let replacement
       if (msg.role === 'assistant') {
-        // Keep tool-call blocks (pairing) intact; truncate the rest structurally.
-        replacement = this.appendReplacement(session, 'assistant/message', {
-          turn: data.turn as number,
-          step: data.step as number,
-          ...data,
-          message: { ...msg, content: blocks } as import('@deepseek-ai/dsh-llm').AssistantMessage,
-        }, entry.seq, entry.seq, [entry.seq])
+        // 0.1.5+ makes assistant/message nodes immutable (see
+        // isAssistantImmutable): skip them and keep dehydrating the rest.
+        if (this.assistantImmutable) continue
+        try {
+          // Keep tool-call blocks (pairing) intact; truncate the rest structurally.
+          replacement = this.appendReplacement(session, 'assistant/message', {
+            turn: data.turn as number,
+            step: data.step as number,
+            ...data,
+            message: { ...msg, content: blocks } as import('@deepseek-ai/dsh-llm').AssistantMessage,
+          }, entry.seq, entry.seq, [entry.seq])
+        } catch (error) {
+          if (!isAssistantImmutable(error)) throw error
+          this.assistantImmutable = true
+          console.log('[mosaic-memory-compact] host forbids assistant/message replacement '
+            + '(0.1.5+): skipping assistant nodes in the light pass')
+          continue
+        }
       } else if (msg.source.kind === 'tool') {
         replacement = this.appendReplacement(session, 'tool/result', {
           turn: data.turn as number,

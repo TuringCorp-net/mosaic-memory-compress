@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# Mount MosaicMemoryCompress into a DSH profile by INSTALLING it, never by
-# symlinking the checkout: a symlinked dev tree carries its own
-# node_modules/@deepseek-ai, which shadows the host's session API and makes
-# the runtime capability probe validate against the wrong implementation.
+# ⚠️  NOT RECOMMENDED — kept for reference only (2026-09-10).
+#
+# Installing a bare unpack into profiles/node_modules breaks DSH startup:
+#   request for '@deepseek-ai/cosmokit' is from a module not been linked
+# The cordis loader refuses modules it has not linked, and an unpacked
+# directory is not a registered profile dependency tree (profiles/ has no
+# package.json). The supported mount is a symlink to the checkout — the
+# adapter's write-path self-correction makes the module shadowing harmless.
+# Install this way only after registering the package as a real profile
+# dependency.
 #
 # Usage: scripts/install-local.sh [profile_node_modules_dir]
 #   default: ~/.dsh/profiles/node_modules
