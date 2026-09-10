@@ -1,13 +1,19 @@
 # MosaicMemoryCompress — DSH bundle patch layer.
-# Installed via `dsh plugin add TuringCorp-net/mosaic-memory-compress`.
-# The adapter entry lives at dsh-module/dist/index.cjs (see package.json exports).
+# Installed with `dsh plugin --profile web add mosaic-memory-compress`
+# (registry package) or, without npm, from the public repo:
+# `dsh plugin --profile web add github:TuringCorp-net/mosaic-memory-compress`.
+# The adapter entry lives at dsh-module/dist/index.js — the ESM build. The CJS
+# build cannot be used here: a registry/git install resolves the host's own
+# `@deepseek-ai/*` ESM files, and `require()`-ing an already-loaded ESM module
+# fails at boot ("request for '@deepseek-ai/cosmokit' is from a module not been
+# linked"). See dsh-module/INTEGRATION-NOTES.md §20.
 - insert:
     - id: mosaic-memory-compact
-      name: 'mosaic-memory-compress/dsh-module/dist/index.cjs'
+      name: 'mosaic-memory-compress/dsh-module/dist/index.js'
       config:
         lightStart: 10
         lightWindow: 30
-        heavyStart: 30
+        heavyStart: 40
         heavyWindow: 30
         maxTokens: 8192
         # Safety gate: only these sessions are compressed ([] = disabled).

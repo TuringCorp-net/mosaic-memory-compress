@@ -104,6 +104,14 @@ MosaicMemoryCompress 的 DSH 插件后端在 [`dsh-module/`](dsh-module/DESIGN.c
 带进 DSH 会话——Light 结构化截断（1:1 表面替换，原始进 shadow），Heavy 折叠为
 单个永不超上限的 checkpoint。中文设计文档：[dsh-module/DESIGN.cn.md](dsh-module/DESIGN.cn.md)。
 
+安装到 DSH profile（包内声明 `dsh.bundle`）：
+
+```bash
+dsh plugin --profile web add mosaic-memory-compress      # registry 包
+# 不走 npm 的话，直接从公开仓装：
+dsh plugin --profile web add github:TuringCorp-net/mosaic-memory-compress
+```
+
 **⚠️ 升级 DSH 前请注意（0.1.5）**：在 **DSH ≤ 0.1.2 上用 v1.3.2 之前的马赛克**
 压缩过的会话，含 assistant 级 1:1 替换事件，无法通过 0.1.5 的会话迁移审计——
 升级后这些会话会拒绝加载（`assistant/message … chunk provenance is not one

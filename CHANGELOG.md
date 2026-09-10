@@ -13,6 +13,15 @@ Dates are local (Asia/Shanghai).
   `tsconfig.build.json`) and the entry points at it; `prepublishOnly` builds and
   tests before any publish. The DSH adapter subpath
   (`mosaic-memory-compress/dsh-module/dist/index.cjs`) is unchanged.
+- **Fixed (install path)**: the DSH bundle patch loaded the CJS build
+  (`dsh-module/dist/index.cjs`). On a pnpm install — the way a user actually
+  installs the plugin — `require()`-ing the host's already-loaded ESM
+  `@deepseek-ai/*` files fails to link and **kills the whole instance at boot**
+  (`request for '@deepseek-ai/cosmokit' is from a module not been linked`).
+  The bundle now loads the ESM build (`dsh-module/dist/index.js`, exported from
+  `package.json`; the `.cjs` subpath stays for the symlink mount). Verified on a
+  clean `DSH_HOME`: install → boot → engine constructed. The bundle's
+  `heavyStart` (30, out of sync with the documented 40) was corrected too.
 - **Documented**: DSH 0.1.5's `v0→v1→v2→v3` session migration refuses a stored
   log that contains mosaic's pre-v1.3.2 *assistant* 1:1 replacements
   (`assistant/message … chunk provenance is not one complete ordered attempt`).

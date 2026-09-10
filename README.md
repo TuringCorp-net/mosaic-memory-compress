@@ -187,7 +187,20 @@ exists. Its primary integration reference is **DeepSeek Harness (DSH)**
 ([deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
 — everything is a plugin), whose task-level compaction / output retention /
 spill complement this library's message-level compression (roles and order
-preserved). ### DSH compatibility
+preserved).
+
+### DSH compatibility
+
+Install the adapter into a DSH profile (the package declares a `dsh.bundle`):
+
+```bash
+dsh plugin --profile web add mosaic-memory-compress      # registry package
+# no npm? straight from the public repo:
+dsh plugin --profile web add github:TuringCorp-net/mosaic-memory-compress
+```
+
+Compression stays off until a session is listed — set
+`config.sessionAllowlist` in the profile patch (see the safety gate below).
 
 The adapter probes the host at runtime and adapts to its session API:
 

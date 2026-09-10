@@ -437,3 +437,36 @@ sessions written from then on are migration-safe on those hosts. On hosts
 hazard for a future upgrade. Upgrade path: mount mosaic v1.3.2+ **before**
 upgrading DSH, and treat any conversation compressed on ≤0.1.2 as salvage-only
 across the 0.1.5 boundary.
+
+## 20. The `dsh plugin add` install path: the CJS entry cannot import the host (2026-09-10)
+
+**Symptom.** Installing the package the way a user would —
+`dsh plugin --profile web add mosaic-memory-compress` (registry) or
+`… add github:TuringCorp-net/mosaic-memory-compress` — then booting, kills the
+whole instance:
+
+```
+dsh: plugin tree failed to load: … failed to import loader entry
+mosaic-memory-compact (mosaic-memory-compress/dsh-module/dist/index.cjs):
+request for '@deepseek-ai/cosmokit' is from a module not been linked
+```
+
+**Why the checkout mount never showed it.** Production mounts this repo by
+symlink, so the dist's `require('@deepseek-ai/cordis')` resolves the repo's own
+nested dev copy. A pnpm install has no nested copy: the request resolves to the
+host's *already asynchronously loaded* ESM file, and Node's `require(esm)` sync
+path cannot link it (`ERR_VM_MODULE_LINK_FAILURE`). A/B on clean DSH_HOMEs, all
+booted with the same CLI: no plugin → boots; third-party plugin (`dshmarket`,
+installed the same way) → boots; this package with the CJS entry → dies.
+
+**Fix.** The bundle patch loads the ESM build `dsh-module/dist/index.js`
+(exported from `package.json` alongside the `.cjs`). Verified end-to-end on a
+clean `DSH_HOME`: `dsh plugin add <tarball>` → boot OK →
+`[mosaic-memory-compact] engine constructed (lightStart=10, heavyStart=40)`.
+The `.cjs` subpath stays for the symlink mount. Note that the bundle patch's
+`heavyStart` was also out of sync with the docs (30 vs 40) — corrected.
+
+**Lesson (same family as §18/§19).** "It runs on my machine" does not prove
+"it installs". Exercise the path a user actually takes — `dsh plugin add` into a
+clean `DSH_HOME` — not only the developer mount; the mount hides module
+resolution behind its own nested `node_modules`.

@@ -14,6 +14,10 @@
     "./dsh-module/dist/index.cjs": {
       "types": "./dsh-module/dist/index.d.cts",
       "default": "./dsh-module/dist/index.cjs"
+    },
+    "./dsh-module/dist/index.js": {
+      "types": "./dsh-module/dist/index.d.ts",
+      "default": "./dsh-module/dist/index.js"
     }
   },
   "files": [
