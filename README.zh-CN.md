@@ -104,6 +104,15 @@ MosaicMemoryCompress 的 DSH 插件后端在 [`dsh-module/`](dsh-module/DESIGN.c
 带进 DSH 会话——Light 结构化截断（1:1 表面替换，原始进 shadow），Heavy 折叠为
 单个永不超上限的 checkpoint。中文设计文档：[dsh-module/DESIGN.cn.md](dsh-module/DESIGN.cn.md)。
 
+**⚠️ 升级 DSH 前请注意（0.1.5）**：在 **DSH ≤ 0.1.2 上用 v1.3.2 之前的马赛克**
+压缩过的会话，含 assistant 级 1:1 替换事件，无法通过 0.1.5 的会话迁移审计——
+升级后这些会话会拒绝加载（`assistant/message … chunk provenance is not one
+complete ordered attempt`）。**原始日志不会被改动**（内容没丢），但会话打不开了，
+插件侧没有修复手段；需要时用只读的
+[`scripts/salvage-session.py`](scripts/salvage-session.py) 把对话导出成 Markdown。
+正确顺序：**先把马赛克升到 v1.3.2+，再升级 DSH**（此后在 0.1.5 上不再写这类事件）。
+完整分析见 [`dsh-module/INTEGRATION-NOTES.md`](dsh-module/INTEGRATION-NOTES.md) §19。
+
 相关：
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — 宿主平台

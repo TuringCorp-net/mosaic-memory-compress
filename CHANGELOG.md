@@ -3,6 +3,27 @@
 All notable changes to MosaicMemoryCompress and its DSH adapter.
 Dates are local (Asia/Shanghai).
 
+## Unreleased — 2026-09-10 (docs)
+
+**Upgrade hazard: sessions compressed before v1.3.2 on DSH ≤ 0.1.2 cannot be
+loaded after a 0.1.5 upgrade.**
+
+- **Documented**: DSH 0.1.5's `v0→v1→v2→v3` session migration refuses a stored
+  log that contains mosaic's pre-v1.3.2 *assistant* 1:1 replacements
+  (`assistant/message … chunk provenance is not one complete ordered attempt`).
+  The stored log is left untouched — nothing is erased — but the conversation
+  no longer opens, and no plugin-side repair exists (10+ in-place rewrites each
+  failed on a different log invariant; `seq` in v0/v1 is a logical chunk-space
+  counter, so rows cannot simply be renumbered). README (EN / zh-CN) now warns
+  *before* the host upgrade and points at the new salvage script; the root
+  cause, the measured invariants, the migration source coordinates and the
+  measured blast radius are in `dsh-module/INTEGRATION-NOTES.md` §19.
+- **Added**: `scripts/salvage-session.py` — read-only transcript salvage for an
+  unloadable `session.jsonl.zstd` (deduplicates surface copies, drops mosaic
+  fold notices, never writes to the source).
+- **Guidance**: mount mosaic v1.3.2+ *before* upgrading DSH to 0.1.5; treat any
+  conversation compressed on ≤ 0.1.2 as salvage-only across that boundary.
+
 ## v1.3.3 — 2026-09-10
 
 **Single-checkpoint fold — fixes stored-session corruption on 0.1.5.**

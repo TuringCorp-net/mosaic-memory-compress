@@ -360,3 +360,68 @@ keep the legacy path as the fallback, AND make the write path self-correcting:
 a probe can only be as right as the module resolution it runs under, so let
 the host's validation be the final word. Also: never mount a dev checkout by
 symlink when it carries its own dependency tree.
+
+## 19. Stored-session upgrade hazard: pre-v1.3.2 assistant replacements are refused by the 0.1.5 migration (2026-09-10)
+
+**Symptom** (found while upgrading a long-lived 0.1.2 host to 0.1.5-rc.1).
+Conversations that mosaic had compressed on the old host stop opening:
+
+```
+assistant/message <seq> chunk provenance is not one complete ordered attempt;
+source v0 artifact remains unchanged
+```
+
+The migration refuses *before* writing, so the stored log is untouched and the
+data is intact — the conversation is simply unloadable.
+
+**Root cause.** 0.1.5 reads a stored v0/v1 log through the released
+`v0→v1→v2→v3` chain. In `session-format-v1-to-v2/src/migration.ts`
+`transformMessage()` (tag `dsh-v0.1.5-rc.1`, lines 265–301) an
+`assistant/message` carrying a **non-empty** `sourceEventSeqs` must match the
+currently pending chunk attempt group; a missing pending group (or a mismatch)
+is exactly the refusal above. Before v1.3.2 the light pass replaced assistant
+nodes 1:1 with events citing only the replaced seq
+(`surfaceOp={op:'replace',start:X,end:X}`, `sourceEventSeqs=[X]`, no `stream`)
+— and those copies are appended long after the attempt closed, so no pending
+group exists. The rules are not literally irreconcilable (`sourceEventSeqs: []`
+takes a separate passing branch), but the citation a 1:1 replacement *wants*
+cannot be expressed in v1's chunk-attempt provenance model.
+
+**Invariants measured on the refused logs** (worth keeping; trial-and-error hit
+each of them):
+
+- `seq` in v0/v1 is a **logical chunk-space counter, not a row number**: one
+  log had 78,785 rows, 26,190 seq-bearing events and `max seq = 1,356,342`
+  (first event `seq: 0`); packed `reasoning-chunks` / `tool-call-chunks` /
+  `text-chunks` rows carry no `seq` and point back with `seq0`.
+- Consequence: deleting mosaic events and renumbering rows is not a repair —
+  it breaks the counter (`row N has seq gap`). v1→v2 later renumbers to dense
+  event indices, so nothing may assume row numbers upstream either.
+- v2→v3 additionally requires positive `step`; the heavy fold's companion
+  event wrote `step=0` (removed structurally in v1.3.3).
+
+**Repair decision: none.** Ten-plus in-place rewrites were attempted (delete +
+renumber, retype the events to official `compaction/prune`, …) and each failed
+on a different invariant (`row N has seq gap`, `shadowedSeqs do not name an
+exact current surface span` at `session-format-v0-to-v1/src/relationships.ts`
+line 495, …). The transcripts were exported instead; `scripts/salvage-session.py`
+does that generically and read-only.
+
+**Blast radius.** Only logs containing *assistant-level* mosaic replacements are
+refused; `user/message` and `tool/result` replacements do not enter that rule.
+On the affected host, 2 of 156 stored logs contained assistant replacements
+(565 and 1,182 events); 9 more contained user/tool replacements only. Detector
+(read-only):
+
+```bash
+zstdcat session.jsonl.zstd | grep -c '"surfaceOp":{"op":"replace"'
+```
+
+**Prevention / what to tell users.** v1.3.2+ never writes assistant
+replacements on 0.1.5 (it learns `assistantImmutable` from the host's first
+rejection) and v1.3.3 folds into a single `user/message` checkpoint, so
+sessions written from then on are migration-safe on those hosts. On hosts
+≤0.1.2 the light pass still replaces assistant nodes — that is what seeds this
+hazard for a future upgrade. Upgrade path: mount mosaic v1.3.2+ **before**
+upgrading DSH, and treat any conversation compressed on ≤0.1.2 as salvage-only
+across the 0.1.5 boundary.

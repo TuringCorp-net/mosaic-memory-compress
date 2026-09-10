@@ -213,6 +213,18 @@ the host's own validation has the final word.
 because it replaces a `user/message` with the full citation list. Optional diagnostics: set `MOSAIC_DIAG=<path>` to log pre-step and
 exception lines to a file (journald buffering can hide stdout).
 
+**⚠️ Upgrading an existing host to 0.1.5.** Conversations that mosaic
+compressed **before v1.3.2 on DSH ≤ 0.1.2** carry assistant-level 1:1
+replacements whose citation cannot satisfy 0.1.5's migration audit, so 0.1.5
+refuses to load them (`assistant/message … chunk provenance is not one
+complete ordered attempt`). The stored log itself is never modified — nothing
+is lost, but the conversation will not open again, and no plugin-side repair
+exists. Salvage the transcript read-only with
+[`scripts/salvage-session.py`](scripts/salvage-session.py) (it reads the
+`.jsonl.zstd` directly). Mount mosaic **v1.3.2 or later before upgrading
+DSH**: from there the engine never writes those events on 0.1.5. Full analysis:
+[`dsh-module/INTEGRATION-NOTES.md`](dsh-module/INTEGRATION-NOTES.md) §19.
+
 ### DSH adapter: session allowlist (safety gate)
 
 By default the adapter compresses **nothing** until you explicitly list
