@@ -8,6 +8,10 @@ still needs to be readable.
 
     python3 scripts/salvage-session.py ~/.dsh/sessions/<ws>/session-<id>/session.jsonl.zstd out.md
 
+Both on-disk shapes are accepted: the original v0/v1 log (`session.jsonl.zstd`)
+and 0.1.5's migrated/logged v3 file (`session.v3.jsonl.zstd`) — a 0.1.5-era
+session may have only the latter.
+
 Messages are deduplicated the way the surface does (one user message per id,
 one assistant message per turn/step), split answers are joined, and mosaic's
 own fold notices are dropped.

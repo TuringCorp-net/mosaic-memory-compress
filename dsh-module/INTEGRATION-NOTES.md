@@ -417,6 +417,18 @@ On the affected host, 2 of 156 stored logs contained assistant replacements
 zstdcat session.jsonl.zstd | grep -c '"surfaceOp":{"op":"replace"'
 ```
 
+**Positive control, from the storage layout.** A successful 0.1.5 load writes a
+migrated `session.v3.jsonl.zstd` next to the original `.jsonl.zstd` (a
+0.1.5-era session may have only the v3 file). On the affected host 11 logs had
+a v3 file — including 4 of the 9 user/tool-only logs, which is direct proof
+they migrate cleanly — while **neither** refused log had one. "Has
+`session.v3.jsonl.zstd`" is therefore the cheap load-probe when auditing a host
+that has been upgraded:
+
+```bash
+find sessions -name 'session.v3.jsonl.zstd'
+```
+
 **Prevention / what to tell users.** v1.3.2+ never writes assistant
 replacements on 0.1.5 (it learns `assistantImmutable` from the host's first
 rejection) and v1.3.3 folds into a single `user/message` checkpoint, so
