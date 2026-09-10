@@ -170,6 +170,13 @@ function isUserRound(message: Message): boolean {
   return message.role === 'user' && message.source.kind === 'user'
 }
 
+/** Short session id for journal lines. Ids are `session-<uuid>`, so a plain
+ * `slice(0, 8)` printed the useless constant "session-" for every session
+ * (found 2026-09-11 while hunting a production trigger in journald). */
+function shortSessionId(id: string): string {
+  return id.startsWith('session-') ? id.slice(8, 16) : id.slice(0, 8)
+}
+
 /** Session events across the 0.1.x → 0.1.2 API change:
  * 0.1.0 had `session.events` (array); 0.1.2 removed it in favor of
  * `session.snapshotEvents()`. The module's dev/test tree pins 0.1.0-rc.x,
@@ -422,7 +429,7 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
     const lightDue = userCount - state.light >= this.mosaic.lightWindow
     const heavyDue = userCount - state.heavy >= this.mosaic.heavyWindow
     if (trigger !== 'context-overflow' && (belowThreshold || (!lightDue && !heavyDue))) {
-      console.log('[mosaic] pre-step sid=' + agent.session.id.slice(0, 8)
+      console.log('[mosaic] pre-step sid=' + shortSessionId(agent.session.id)
         + ' R=' + userCount + ' trigger=' + trigger
         + ' no-op (' + (Date.now() - t0) + 'ms)')
       return null
@@ -450,7 +457,7 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
       const result = await this.heavyFold(agent, zones.heavy.start, zones.heavy.end, signal)
       // Folded → the visible R settles back toward heavyStart, which matches
       // the per-session seed; no state bump needed (next fold at R+window).
-      console.log('[mosaic] pre-step sid=' + agent.session.id.slice(0, 8)
+      console.log('[mosaic] pre-step sid=' + shortSessionId(agent.session.id)
         + ' R=' + userCount + ' trigger=' + trigger
         + ' TRIGGERED lightCalls=' + this.lightStats.calls
         + ' lightTokens=' + this.lightStats.tokens
@@ -458,7 +465,7 @@ export class MosaicMemoryCompactionEngine extends BasicCompactionEngine {
         + ' (' + (Date.now() - t0) + 'ms)')
       return result
     }
-    console.log('[mosaic] pre-step sid=' + agent.session.id.slice(0, 8)
+    console.log('[mosaic] pre-step sid=' + shortSessionId(agent.session.id)
       + ' R=' + userCount + ' trigger=' + trigger
       + ' TRIGGERED' + (lightRan ? ' lightCalls=' + this.lightStats.calls
         + ' lightTokens=' + this.lightStats.tokens : ' lightCalls=0 lightTokens=0')

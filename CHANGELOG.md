@@ -3,6 +3,21 @@
 All notable changes to MosaicMemoryCompress and its DSH adapter.
 Dates are local (Asia/Shanghai).
 
+## Unreleased
+
+- **Fixed (diagnostics)**: every journal line printed `sid=session-` — the id
+  slice took the first 8 characters of `session-<uuid>`, so no line could be
+  attributed to a session. Lines now print the uuid prefix (`sid=7ac0987c`).
+  Found 2026-09-11 while looking for a production trigger in journald.
+- **Noted**: production hosts that mount this adapter on top of the stock
+  `dsh-base` still run `compaction-basic` (pressure trigger, default
+  `thresholdRatio 0.8` of the routed model's context). The two coexist — mosaic
+  triggers on its own round cadence, the official backend only near overflow —
+  but in a token-heavy session the official one can fire first (measured: a
+  session folded at 738k input tokens while mosaic's surface R was only 22,
+  below its 40 threshold) and reset the surface. Lower mosaic's thresholds or
+  disable `compaction-basic` when a workload is expected to be tool-heavy.
+
 ## v1.3.4 — 2026-09-10
 
 **First npm-publishable release + the 0.1.5 upgrade hazard documented.**

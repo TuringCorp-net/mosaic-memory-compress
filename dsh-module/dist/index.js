@@ -64,6 +64,9 @@ var DEFAULTS = {
 function isUserRound(message) {
   return message.role === "user" && message.source.kind === "user";
 }
+function shortSessionId(id) {
+  return id.startsWith("session-") ? id.slice(8, 16) : id.slice(0, 8);
+}
 function seqRange(v) {
   return v;
 }
@@ -232,7 +235,7 @@ var MosaicMemoryCompactionEngine = class extends BasicCompactionEngine {
       const lightDue = userCount - state.light >= this.mosaic.lightWindow;
       const heavyDue = userCount - state.heavy >= this.mosaic.heavyWindow;
       if (trigger !== "context-overflow" && (belowThreshold || !lightDue && !heavyDue)) {
-        console.log("[mosaic] pre-step sid=" + agent.session.id.slice(0, 8) + " R=" + userCount + " trigger=" + trigger + " no-op (" + (Date.now() - t0) + "ms)");
+        console.log("[mosaic] pre-step sid=" + shortSessionId(agent.session.id) + " R=" + userCount + " trigger=" + trigger + " no-op (" + (Date.now() - t0) + "ms)");
         return null;
       }
       const zones = this.computeZones(agent);
@@ -244,10 +247,10 @@ var MosaicMemoryCompactionEngine = class extends BasicCompactionEngine {
       }
       if (heavyDue && !zones.heavyEmpty && userCount >= this.mosaic.heavyStart) {
         const result = await this.heavyFold(agent, zones.heavy.start, zones.heavy.end, signal);
-        console.log("[mosaic] pre-step sid=" + agent.session.id.slice(0, 8) + " R=" + userCount + " trigger=" + trigger + " TRIGGERED lightCalls=" + this.lightStats.calls + " lightTokens=" + this.lightStats.tokens + " heavyFolded=" + result.shadowedSeqs.length + " nodes (" + (Date.now() - t0) + "ms)");
+        console.log("[mosaic] pre-step sid=" + shortSessionId(agent.session.id) + " R=" + userCount + " trigger=" + trigger + " TRIGGERED lightCalls=" + this.lightStats.calls + " lightTokens=" + this.lightStats.tokens + " heavyFolded=" + result.shadowedSeqs.length + " nodes (" + (Date.now() - t0) + "ms)");
         return result;
       }
-      console.log("[mosaic] pre-step sid=" + agent.session.id.slice(0, 8) + " R=" + userCount + " trigger=" + trigger + " TRIGGERED" + (lightRan ? " lightCalls=" + this.lightStats.calls + " lightTokens=" + this.lightStats.tokens : " lightCalls=0 lightTokens=0") + " heavy=none (" + (Date.now() - t0) + "ms)");
+      console.log("[mosaic] pre-step sid=" + shortSessionId(agent.session.id) + " R=" + userCount + " trigger=" + trigger + " TRIGGERED" + (lightRan ? " lightCalls=" + this.lightStats.calls + " lightTokens=" + this.lightStats.tokens : " lightCalls=0 lightTokens=0") + " heavy=none (" + (Date.now() - t0) + "ms)");
       return null;
     } catch (err) {
       diag("EXCEPTION: " + (err instanceof Error ? err.message : String(err)));
