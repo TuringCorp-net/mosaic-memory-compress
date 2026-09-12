@@ -99,6 +99,32 @@ const compressed = await mosaicMemoryCompress(messages, config);
 
 ## DeepSeek Harness 集成
 
+> **⚠️ 从 DSH 0.1.5 起：请直接用官方压缩，不要安装本适配器。**
+>
+> 0.1.5 的官方 `compaction-basic` 已经实现了本适配器的**核心逻辑**：近区原文
+> 逐字保留（默认 = 窗口的 16%，1M 窗口即 16 万 token）+ 更早内容折成**一个**
+> 有界 checkpoint，压力触发、不打断对话，并且额外有溢出恢复、持久锁、事务、
+> 重放稳定性校验与 KV cache 复用的摘要调用——安全性远好于本适配器。
+> 唯一没有对应物的是 **Light 区**（零 LLM、按年龄的结构脱水）；单独为这一项
+> 维护第二套压缩引擎 + 逐版跟 DSH 适配不划算，而且同样的效果用官方配置就能
+> 逼近：
+>
+> ```yaml
+> # preset 组合里的 compaction-basic 行（0.1.5 起这三行属于 preset，不再是宿主行）
+> config:
+>   thresholdRatio: 0.15   # 到窗口 15% 就压（1M 窗口 → 15 万 token）
+>   retainRatio: 0.05      # 近区保留 5%（→ 5 万 token）
+> ```
+>
+> 也可以不改 preset，直接在 `$DSH_HOME/settings.yaml` 的 `llm-deepseek:` 段把声明的
+> `defaultContextWindow` 改小（热加载、不用重启，真请求仍按模型真实窗口发）。
+> 注意 `retainRatio` 必须小于 `thresholdRatio`；配错时自动压缩会**只警告一次然后
+> 静默不再压缩**，改完务必看启动日志。
+>
+> 完整代码级对比与结论（含 0.1.5 把压缩移进 preset 隔离 realm 的影响）：
+> [`dsh-module/INTEGRATION-NOTES.md`](dsh-module/INTEGRATION-NOTES.md) §21。
+> **≤ 0.1.2 的宿主仍可用本适配器**；与本仓库的通用算法库无关。
+
 MosaicMemoryCompress 的 DSH 插件后端在 [`dsh-module/`](dsh-module/DESIGN.cn.md)：
 `MosaicMemoryCompactionEngine` 继承官方 `BasicCompactionEngine`，把三区遗忘曲线
 带进 DSH 会话——Light 结构化截断（1:1 表面替换，原始进 shadow），Heavy 折叠为

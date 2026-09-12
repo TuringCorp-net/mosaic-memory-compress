@@ -470,3 +470,117 @@ The `.cjs` subpath stays for the symlink mount. Note that the bundle patch's
 "it installs". Exercise the path a user actually takes — `dsh plugin add` into a
 clean `DSH_HOME` — not only the developer mount; the mount hides module
 resolution behind its own nested `node_modules`.
+
+## 21. From DSH 0.1.5 on, mount the built-in compaction — not this adapter (2026-09-12)
+
+**Conclusion.** Code-level review of `dsh-v0.1.5-rc.1` shows the official
+`compaction-basic` backend already implements the *core* of what this adapter
+was built for — a verbatim recent window plus one bounded checkpoint for
+everything older, on a pressure trigger that never interrupts the conversation,
+plus overflow recovery this adapter never had — with a far stronger safety
+story (durable lock, `compaction/start|summary|end` transaction, replay
+stability re-validation, shrink check, KV-cache-reusing summarization call).
+Only the Light zone (zero-LLM, age-based structural dehydration) has no
+official equivalent. That single remaining feature does not justify shipping
+and version-tracking a second compaction engine. **On any host at 0.1.5 or
+newer: use the built-in compaction and do not mount this adapter.** The adapter
+stays supported for ≤ 0.1.2 hosts; the framework-agnostic library is unaffected.
+
+### 21.1 What the official backend does (0.1.5 code coordinates)
+
+| Behavior | Implementation |
+|---|---|
+| Trigger | `agent/pre-step` → `compactIfNeeded(agent, 'pressure')`, every step (`compaction-basic/src/index.ts:148-166, 294-332`) |
+| When | `measurement.totalTokens ≥ floor(contextWindow × thresholdRatio)`, default ratio **0.8** (`config.ts:20, 144`) |
+| Pressure unit | the token meter's `totalTokens`, whose baseline is the **provider-reported usage of the last successful call** when its envelope matches, else an estimate — i.e. real request size, not a heuristic (`dsh-token-meter/lib/index.js` `measure()`) |
+| Kept verbatim | the recent tail, accumulated newest→oldest until `retainTokens` route-priced tokens are covered; default `retainRatio` **0.16** (`region.ts:116-154`, `config.ts:22-23, 145-147`) |
+| Folded | everything from the first non-`system/message` surface node up to that tail — **as one** checkpoint node (`region.ts:130-153`) |
+| Manual `/compact` | `compactNow()` with `retainTokens = 0` → keeps only the last balanced step (`index.ts:369-421`) |
+| Overflow recovery | provider-confirmed `CONTEXT_WINDOW_EXCEEDED` bypasses threshold and retention, prunes, folds, retries (`index.ts:180-224, 284-292`) |
+| Summarizer input | full-fidelity replay: system head + header tools + the region's own messages, then the 8-section compaction instruction — deliberately a genuine prefix of the last request so the provider's KV cache is reused (`region.ts:528-546`, `summarizer.ts:24-70`) |
+| Guards | durable lock; whole-surface (auto) / selected-span (manual) re-validation; the framed summary must price **below** the shadowed span; `compactionRetries` default 1 (`region.ts:172-274, 399-412`) |
+| Model-free pre-pass | `tool-result-pruner`: tool results over 8192 chars → head 4096 + marker + tail 1024, only after a trigger qualifies (`compaction-tool-result-pruner/src/index.ts:83-122`) |
+
+On this deployment (`llm-deepseek` declares `contextWindow: 1e6` for
+`deepseek-flash`) that resolves to: **compact at ~800k tokens, keep the newest
+~160k tokens verbatim.** Field check: the 2026-09-10 fold in the Workflow
+session folded 1,078 nodes / 535,851 tokens on a call whose
+`usage.inputTokens` was 738,636 — 535k folded + ~160k retained + tools/system,
+which matches the model.
+
+### 21.2 Side by side
+
+| | Official (auto) | This adapter |
+|---|---|---|
+| Near window | newest `0.16 × window` **tokens** (content-adaptive) | newest `lightStart` **rounds** (content-agnostic, default 10) |
+| Middle | **none** — nothing is touched before the threshold | Light zone: 1:1 replacements, zero-LLM structural truncation (reasoning head/tail 30, tool-call string fields ≤120, tool-result text head/tail 50) |
+| Far | one checkpoint, same cut as the middle | Heavy zone: one checkpoint, text-only summarizer input |
+| Shape | a **cliff** at 80% of the window | a **gradient** from round 10 onward |
+| Summarizer input | lossless replay (tools, results, reasoning), KV-cache reuse | user/assistant text only |
+| Interruption | never; overflow triggers recovery + retry | heavy fold can fail soft |
+| Safety | lock + transaction + stability + shrink checks | reuses the same transaction for the heavy fold only |
+
+### 21.3 The one thing official does not do
+
+Age-based, zero-LLM dehydration. The official pruner is the closest analogue but
+it only runs *after* a trigger qualifies, only touches tool results, and keeps
+4096/1024 chars rather than 50/50. So a session below 800k tokens carries every
+reasoning block, tool argument and tool result in full — the adapter's Light
+pass is a genuine saving there. Whether that is worth a second engine is a
+product call, and on a 1M-window host the answer is no: the same effect is
+reachable from official configuration alone (below).
+
+### 21.4 Getting mosaic-like behavior from official configuration
+
+The full policy surface is `thresholdRatio`, `retainRatio` (xor `retainTokens`),
+`summarizationProvider`/`summarizationModel`, `maxTokens`, `compactionRetries`,
+`maxOverflowRetries`, `modelPolicies` (exact `{provider, model, ...partial}`
+overrides) and `auto` (`compaction-basic/README.md`, "Tuning when condensation
+starts"). Constraints: `retainRatio < thresholdRatio`; an absolute
+`retainTokens` must stay below the resolved threshold; the two retention forms
+are mutually exclusive.
+
+Two traps worth knowing:
+
+- **Absolute thresholds are not a field.** The trigger is always
+  `floor(routedContextWindow × thresholdRatio)`. Reach an absolute token budget
+  by arithmetic (`0.15` for 150k on a 1M window) or by changing the window the
+  adapter declares — `defaultContextWindow` / a catalog model's `contextWindow`
+  — which is a host-plane row and can be set in `$DSH_HOME/settings.yaml` under
+  `llm-deepseek:`, hot-reloaded, no restart.
+- **A misconfiguration fails silently.** `retainRatio ≥ thresholdRatio` is
+  rejected at load, but `retainTokens ≥ thresholdTokens` throws
+  `TargetPressureConfigError` when the model is first used; the automatic
+  listener warns **once** and then proceeds with full history — automatic
+  compaction stops happening with no visible error. Always read the boot log
+  after changing these numbers.
+
+### 21.5 A structural change that matters for any compaction plugin
+
+0.1.5 moved `compaction-basic`, `command-compact` and `tool-result-pruner` out
+of the host plane and into each agent preset's own realm: the web bundle
+disables the host rows (`dsh-web-app/cordis.patch.yml:420-437`) and every
+preset re-mounts them inside `cordis:group` with
+`isolate: {compaction: true, toolResultPruner: true}`
+(`dsh-agent-presets/presets/{standard,ptc,cordis}/agent.cordis.yml`); only the
+`tokenMeter` deliberately stays host-plane. Consequences:
+
+- A plugin mounted from a profile patch lives in the **root realm**, so it is
+  *not* `ctx.compaction` for any preset-composed session; `/compact` resolves
+  the preset's own engine. The adapter degenerated into an extra `agent/pre-step`
+  listener — which is exactly the two-engines-in-one-session behavior recorded
+  in §"production reality" of the project MEMORY.
+- To own compaction, a plugin must be mounted **inside the preset's compaction
+  group**. Also note the roster prepends the shipped root and it wins duplicate
+  ids, so a user preset cannot shadow `standard`/`cordis`; it needs a new id and
+  a default change (`agent-presets.default` in `$DSH_HOME/settings.yaml`).
+- A host-plane engine would also collide if the host rows were ever re-enabled
+  in the root realm (two `ctx.compaction` registrations).
+
+### 21.6 How this was verified
+
+Read-only source study of the installed `0.1.5-rc.1` packages and of the
+`dsh-v0.1.5-rc.1` tag in `coding/Reference/deepseek-harness`, cross-checked
+against production evidence (the Workflow session's two folds, the token
+accounting above, and the interleaved journal lines showing both engines
+running). No production behavior was changed to reach this conclusion.

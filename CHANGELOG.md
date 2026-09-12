@@ -5,6 +5,20 @@ Dates are local (Asia/Shanghai).
 
 ## Unreleased
 
+- **Recommendation (DSH 0.1.5+): use the built-in compaction; do not mount this
+  adapter.** A code-level review of `dsh-v0.1.5-rc.1` found that the stock
+  `compaction-basic` backend already implements this adapter's core logic —
+  verbatim recent window (default 16% of the context window) plus one bounded
+  checkpoint for everything older, pressure-triggered, never interrupting the
+  conversation — and adds overflow recovery, a durable lock, the
+  `compaction/start|summary|end` transaction, replay-stability and shrink
+  checks, and a KV-cache-reusing summarization call. The only feature without
+  an official equivalent is the Light zone (age-based, zero-LLM structural
+  dehydration), which does not justify a second compaction engine plus
+  per-version adaptation; `thresholdRatio` (plus `retainRatio`/`retainTokens`,
+  per-model `modelPolicies`) reproduces most of the practical effect. Full
+  comparison: `dsh-module/INTEGRATION-NOTES.md` §21. The adapter remains
+  supported for hosts at 0.1.2 or older.
 - **Fixed (diagnostics)**: every journal line printed `sid=session-` — the id
   slice took the first 8 characters of `session-<uuid>`, so no line could be
   attributed to a session. Lines now print the uuid prefix (`sid=7ac0987c`).

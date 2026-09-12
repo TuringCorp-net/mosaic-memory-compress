@@ -191,6 +191,42 @@ preserved).
 
 ### DSH compatibility
 
+> **⚠️ DSH 0.1.5 and newer: use the built-in compaction, do not mount this
+> adapter.**
+>
+> The stock `compaction-basic` backend in 0.1.5 already implements this
+> adapter's **core logic**: the recent window stays verbatim (default = 16% of
+> the window — 160k tokens on a 1M window) and everything older folds into
+> **one** bounded checkpoint, on a pressure trigger that never interrupts the
+> conversation. It adds overflow recovery, a durable lock, a full
+> `compaction/start|summary|end` transaction, replay-stability checks and a
+> KV-cache-reusing summarization call — a far stronger safety story than this
+> adapter. The only feature without an official equivalent is the **Light
+> zone** (age-based, zero-LLM structural dehydration); carrying a second
+> compaction engine plus per-version DSH adaptation for that one feature is not
+> worth it, and official configuration approximates the same effect:
+>
+> ```yaml
+> # the compaction-basic row inside a preset composition (0.1.5 moved these rows
+> # from the host plane into each preset's realm)
+> config:
+>   thresholdRatio: 0.15   # condense at 15% of the window (150k on a 1M window)
+>   retainRatio: 0.05      # keep the newest 5% verbatim (50k)
+> ```
+>
+> Alternatively leave the preset alone and lower the declared
+> `defaultContextWindow` in the `llm-deepseek:` section of
+> `$DSH_HOME/settings.yaml` (hot-reloaded, no restart; the real request still
+> uses the model's true window). Keep `retainRatio` below `thresholdRatio`: a
+> bad `retainTokens` budget only warns **once** and then silently stops
+> automatic compaction, so read the boot log after changing anything.
+>
+> Full code-level comparison and rationale (including the 0.1.5 move of
+> compaction into each preset's isolated realm):
+> [`dsh-module/INTEGRATION-NOTES.md`](dsh-module/INTEGRATION-NOTES.md) §21.
+> **Hosts at ≤ 0.1.2 can still use this adapter**; the framework-agnostic
+> library is unaffected either way.
+
 Install the adapter into a DSH profile (the package declares a `dsh.bundle`):
 
 ```bash
