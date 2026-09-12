@@ -10,4 +10,5 @@
 - **TODO-LOCAL.md 是本地文件，不推送**。
 - 评测三层全完成前不改核心算法；改动必须过 bench（模拟器）+ bench:real（真实 LLM 抽查）。
 - DSH 插件后端在 dsh-module/（MosaicMemoryCompactionEngine extends 官方 BasicCompactionEngine，外挂插件，不动 DSH 源码）。
+- **DSH 适配层已结项（2026-09-12）**：DSH 0.1.5+ 一律用官方 `compaction-basic`，不再推荐/维护挂载（本机已摘除）；结论与代码级对比见 `dsh-module/INTEGRATION-NOTES.md` §21。库本身仍是无框架依赖的通用算法。
 - 稳态公式：2 + heavyStart × 每轮消息数（纯对话 102 条；文档 82 为笔误已修正）。
